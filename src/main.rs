@@ -1,8 +1,11 @@
 #![allow(unused_imports)]
 use std::{
     io::{Read, Write},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
+    thread,
 };
+
+use tokio::task::spawn_blocking;
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -14,35 +17,41 @@ fn main() {
 
     for stream in listener.incoming() {
         match stream {
-            Ok(mut stream) => {
-                println!("accepted new connection");
-
-                let mut buffer = [0; 512];
-
-                loop {
-                    match stream.read(&mut buffer) {
-                        Ok(0) => {
-                            println!("connection closed");
-                            break;
-                        }
-                        Ok(n) => {
-                            let received = String::from_utf8(Vec::from(&buffer[..n])).unwrap();
-                            println!("received: {}", received);
-
-                            if let Err(e) = stream.write_all("+PONG\r\n".as_bytes()) {
-                                println!("failed to write: {}", e);
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            println!("Error reading stream: {}", e);
-                            break;
-                        }
-                    }
-                }
+            Ok(stream) => {
+                thread::spawn(|| {
+                    handle_connection(stream);
+                });
             }
             Err(e) => {
                 println!("error: {}", e);
+            }
+        }
+    }
+}
+
+fn handle_connection(mut stream: TcpStream) -> () {
+    println!("accepted new connection");
+
+    let mut buffer = [0; 512];
+
+    loop {
+        match stream.read(&mut buffer) {
+            Ok(0) => {
+                println!("connection closed");
+                break;
+            }
+            Ok(n) => {
+                let received = String::from_utf8_lossy(&buffer[..n]);
+                println!("received: {}", received);
+
+                if let Err(e) = stream.write_all("+PONG\r\n".as_bytes()) {
+                    println!("failed to write: {}", e);
+                    break;
+                }
+            }
+            Err(e) => {
+                println!("Error reading stream: {}", e);
+                break;
             }
         }
     }
