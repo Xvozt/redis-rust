@@ -1,5 +1,8 @@
 #![allow(unused_imports)]
-use std::{io::Write, net::TcpListener};
+use std::{
+    io::{Read, Write},
+    net::TcpListener,
+};
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -13,7 +16,30 @@ fn main() {
         match stream {
             Ok(mut stream) => {
                 println!("accepted new connection");
-                stream.write_all("+PONG\r\n".as_bytes()).unwrap();
+
+                let mut buffer = [0; 512];
+
+                loop {
+                    match stream.read(&mut buffer) {
+                        Ok(0) => {
+                            println!("connection closed");
+                            break;
+                        }
+                        Ok(n) => {
+                            let received = String::from_utf8(Vec::from(&buffer[..n])).unwrap();
+                            println!("received: {}", received);
+
+                            if let Err(e) = stream.write_all("+PONG\r\n".as_bytes()) {
+                                println!("failed to write: {}", e);
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            println!("Error reading stream: {}", e);
+                            break;
+                        }
+                    }
+                }
             }
             Err(e) => {
                 println!("error: {}", e);
