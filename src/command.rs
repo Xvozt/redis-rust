@@ -11,6 +11,7 @@ pub fn handle_command(value: &RespValue, storage: &Storage) -> String {
                 "ECHO" => handle_echo(elements),
                 "SET" => handle_set(elements, storage),
                 "GET" => handle_get(elements, storage),
+                "RPUSH" => handle_rpush(elements, storage),
                 _ => format!("-ERR unknown command: '{}'\r\n", command),
             }
         }
@@ -116,6 +117,10 @@ fn handle_get(elements: &[RespValue], storage: &Storage) -> String {
         Some(v) => format!("${}\r\n{}\r\n", v.len(), String::from_utf8_lossy(&v)),
         None => "$-1\r\n".to_string(),
     }
+}
+
+fn handle_rpush(_elements: &[RespValue], storage: &Storage) -> String {
+    todo!()
 }
 
 fn extract_command_name(value: &RespValue) -> String {
