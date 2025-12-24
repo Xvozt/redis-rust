@@ -119,8 +119,34 @@ fn handle_get(elements: &[RespValue], storage: &Storage) -> String {
     }
 }
 
-fn handle_rpush(_elements: &[RespValue], storage: &Storage) -> String {
-    todo!()
+fn handle_rpush(elements: &[RespValue], storage: &Storage) -> String {
+    if elements.len() < 3 {
+        return "-ERR wrong number of arguments for 'RPUSH' command\r\n".to_string();
+    };
+
+    let key = match &elements[1] {
+        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
+        RespValue::SimpleString(s) => s.clone(),
+        _ => return "-ERR Invalid key type\r\n".to_string(),
+    };
+    let values: Result<Vec<Vec<u8>>, String> = elements[2..]
+        .iter()
+        .map(|value| match value {
+            RespValue::BulkString(Some(s)) => Ok(s.clone()),
+            RespValue::SimpleString(s) => Ok(s.as_bytes().to_vec()),
+            _ => Err("-ERR Invalid key type\r\n".to_string()),
+        })
+        .collect();
+
+    let values = match values {
+        Ok(vals) => vals,
+        Err(e) => return e,
+    };
+
+    match storage.rpush(key, values) {
+        Ok(len) => format!(":{}\r\n", len),
+        Err(msg) => format!("-{}\r\n", msg),
+    }
 }
 
 fn extract_command_name(value: &RespValue) -> String {
@@ -300,5 +326,78 @@ mod tests {
         sleep(Duration::from_millis(1100));
 
         assert_eq!(handle_command(&cmd_get, &storage), "$-1\r\n")
+    }
+
+    #[test]
+    fn test_rpush_command_works() {
+        let storage = Storage::new();
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"\"element_one\"".to_vec())),
+            RespValue::BulkString(Some(b"\"element_two\"".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_rpush, &storage), ":2\r\n")
+    }
+
+    #[test]
+    fn test_rpush_command_appends_to_existing_list() {
+        let storage = Storage::new();
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"\"element_one\"".to_vec())),
+            RespValue::BulkString(Some(b"\"element_two\"".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_rpush, &storage), ":2\r\n");
+
+        let cmd_rpush_second = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"\"element_three\"".to_vec())),
+            RespValue::BulkString(Some(b"\"element_four\"".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_rpush_second, &storage), ":4\r\n");
+    }
+
+    #[test]
+    fn test_rpush_command_returns_error_on_wrong_number_of_arguments() {
+        let storage = Storage::new();
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+        ]));
+        assert_eq!(
+            handle_command(&cmd_rpush, &storage),
+            "-ERR wrong number of arguments for 'RPUSH' command\r\n"
+        )
+    }
+
+    #[test]
+    fn test_rpush_command_doesnt_work_on_keys() {
+        let storage = Storage::new();
+
+        let cmd_set = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"SET".to_vec())),
+            RespValue::BulkString(Some(b"key".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_set, &storage), "+OK\r\n");
+
+        let cmd = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"key".to_vec())),
+            RespValue::BulkString(Some(b"\"element_one\"".to_vec())),
+            RespValue::BulkString(Some(b"\"element_two\"".to_vec())),
+        ]));
+        assert_eq!(
+            handle_command(&cmd, &storage),
+            "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
+        )
     }
 }
