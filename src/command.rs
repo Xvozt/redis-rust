@@ -12,6 +12,7 @@ pub fn handle_command(value: &RespValue, storage: &Storage) -> String {
                 "SET" => handle_set(elements, storage),
                 "GET" => handle_get(elements, storage),
                 "RPUSH" => handle_rpush(elements, storage),
+                "LRANGE" => handle_lrange(elements, storage),
                 _ => format!("-ERR unknown command: '{}'\r\n", command),
             }
         }
@@ -164,6 +165,10 @@ fn extract_integer_from_resp_value(value: &RespValue) -> Option<i64> {
         RespValue::SimpleString(s) => s.parse::<i64>().ok(),
         _ => None,
     }
+}
+
+fn handle_lrange(elements: &[RespValue], storage: &Storage) -> String {
+    todo!()
 }
 
 #[cfg(test)]
@@ -394,6 +399,30 @@ mod tests {
             RespValue::BulkString(Some(b"key".to_vec())),
             RespValue::BulkString(Some(b"\"element_one\"".to_vec())),
             RespValue::BulkString(Some(b"\"element_two\"".to_vec())),
+        ]));
+        assert_eq!(
+            handle_command(&cmd, &storage),
+            "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
+        )
+    }
+
+    #[test]
+    fn test_lrange_command_doesnt_work_on_keys() {
+        let storage = Storage::new();
+
+        let cmd_set = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"SET".to_vec())),
+            RespValue::BulkString(Some(b"key".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_set, &storage), "+OK\r\n");
+
+        let cmd = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LRANGE".to_vec())),
+            RespValue::BulkString(Some(b"key".to_vec())),
+            RespValue::Integer(0),
+            RespValue::Integer(1),
         ]));
         assert_eq!(
             handle_command(&cmd, &storage),

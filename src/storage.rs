@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::str::from_boxed_utf8_unchecked;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -118,6 +119,42 @@ impl Storage {
         Ok(len)
     }
 
+    fn lrange(&self, key: &str, start: isize, end: isize) -> Result<Vec<Vec<u8>>, String> {
+        let mut store = self.inner.lock().unwrap();
+        match store.get(key) {
+            None => return Ok(vec![]),
+            Some(stored_value) => {
+                if stored_value.is_expired() {
+                    store.remove(key);
+                    return Ok(vec![]);
+                }
+
+                match &stored_value.data {
+                    StoredData::String(_) => {
+                        return Err(
+                            "WRONGTYPE Operation against a key holding the wrong kind of value"
+                                .to_string(),
+                        )
+                    }
+                    StoredData::List(list) => {
+                        let start_idx = start as usize;
+                        let mut end_idx = end as usize;
+
+                        if start_idx > end_idx || start_idx >= list.len() {
+                            return Ok(vec![]);
+                        }
+
+                        if end_idx >= list.len() {
+                            end_idx = list.len() - 1;
+                        }
+
+                        Ok(list[start_idx..=end_idx].to_vec())
+                    }
+                }
+            }
+        }
+    }
+
     pub fn exists(&self, key: &str) -> bool {
         let store = self.inner.lock().unwrap();
         store.contains_key(key)
@@ -202,6 +239,87 @@ mod tests {
             "key".to_string(),
             vec![b"first".to_vec(), b"second".to_vec()],
         );
+
+        assert_eq!(
+            err,
+            Err("WRONGTYPE Operation against a key holding the wrong kind of value".to_string())
+        )
+    }
+
+    #[test]
+    fn test_lrange_works() {
+        let storage = Storage::new();
+        let _list = storage.rpush(
+            "my_list".to_string(),
+            vec![b"first".to_vec(), b"second".to_vec()],
+        );
+        let result = storage.lrange("my_list", 0, 0);
+        assert_eq!(result, Ok(vec![b"first".to_vec()]))
+    }
+
+    #[test]
+    fn test_lrange_works_multiple_values() {
+        let storage = Storage::new();
+        let _list = storage.rpush(
+            "my_list".to_string(),
+            vec![b"first".to_vec(), b"second".to_vec(), b"third".to_vec()],
+        );
+        let result = storage.lrange("my_list", 0, 2);
+        assert_eq!(
+            result,
+            Ok(vec![
+                b"first".to_vec(),
+                b"second".to_vec(),
+                b"third".to_vec()
+            ])
+        )
+    }
+
+    #[test]
+    fn test_lrange_returns_empty_array_if_list_doesnt_exist() {
+        let storage = Storage::new();
+        let result = storage.lrange("my_list", 0, 1);
+        assert_eq!(result, Ok(vec![]))
+    }
+
+    #[test]
+    fn test_lrange_returns_empty_array_if_start_pos_is_bigger_than_stop_pos() {
+        let storage = Storage::new();
+        let _list = storage.rpush(
+            "my_list".to_string(),
+            vec![b"first".to_vec(), b"second".to_vec()],
+        );
+        let result = storage.lrange("my_list", 5, 0);
+        assert_eq!(result, Ok(vec![]))
+    }
+
+    #[test]
+    fn test_lrange_returns_empty_array_if_start_pos_is_bigger_than_list_len() {
+        let storage = Storage::new();
+        let _list = storage.rpush(
+            "my_list".to_string(),
+            vec![b"first".to_vec(), b"second".to_vec()],
+        );
+        let result = storage.lrange("my_list", 2, 5);
+        assert_eq!(result, Ok(vec![]))
+    }
+
+    #[test]
+    fn test_lrange_stop_pos_is_last_if_stop_is_bigger_than_list_len() {
+        let storage = Storage::new();
+        let _list = storage.rpush(
+            "my_list".to_string(),
+            vec![b"first".to_vec(), b"second".to_vec()],
+        );
+        let result = storage.lrange("my_list", 0, 5);
+        assert_eq!(result, Ok(vec![b"first".to_vec(), b"second".to_vec()]))
+    }
+
+    #[test]
+    fn test_lrange_doest_work_for_maps() {
+        let storage = Storage::new();
+        storage.set("key".to_string(), b"value".to_vec());
+        let err = storage.lrange("key", 0, 0);
 
         assert_eq!(
             err,
