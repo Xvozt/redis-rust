@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::str::from_boxed_utf8_unchecked;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -119,7 +118,7 @@ impl Storage {
         Ok(len)
     }
 
-    fn lrange(&self, key: &str, start: isize, end: isize) -> Result<Vec<Vec<u8>>, String> {
+    pub fn lrange(&self, key: &str, start: isize, end: isize) -> Result<Vec<Vec<u8>>, String> {
         let mut store = self.inner.lock().unwrap();
         match store.get(key) {
             None => return Ok(vec![]),

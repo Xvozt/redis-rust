@@ -122,7 +122,7 @@ fn handle_get(elements: &[RespValue], storage: &Storage) -> String {
 
 fn handle_rpush(elements: &[RespValue], storage: &Storage) -> String {
     if elements.len() < 3 {
-        return "-ERR wrong number of arguments for 'RPUSH' command\r\n".to_string();
+        return "-ERR wrong number of arguments for command\r\n".to_string();
     };
 
     let key = match &elements[1] {
@@ -168,7 +168,42 @@ fn extract_integer_from_resp_value(value: &RespValue) -> Option<i64> {
 }
 
 fn handle_lrange(elements: &[RespValue], storage: &Storage) -> String {
-    todo!()
+    if elements.len() != 4 {
+        return "-ERR wrong number of arguments for command\r\n".to_string();
+    };
+
+    let key = match &elements[1] {
+        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
+        RespValue::SimpleString(s) => s.clone(),
+        _ => return "-ERR Invalid key type\r\n".to_string(),
+    };
+
+    let start = match extract_integer_from_resp_value(&elements[2]) {
+        Some(i) => i as isize,
+        None => return "value is not an integer or out of range\r\n".to_string(),
+    };
+
+    let end = match extract_integer_from_resp_value(&elements[3]) {
+        Some(i) => i as isize,
+        None => return "value is not an integer or out of range\r\n".to_string(),
+    };
+
+    match storage.lrange(&key, start, end) {
+        Ok(items) => format_array(items),
+        Err(e) => format!("-{}\r\n", e),
+    }
+}
+
+fn format_array(items: Vec<Vec<u8>>) -> String {
+    if items.is_empty() {
+        return "*0\r\n".to_string();
+    }
+    let elements: Vec<String> = items
+        .iter()
+        .map(|item| format!("${}\r\n{}\r\n", item.len(), String::from_utf8_lossy(item)))
+        .collect();
+
+    format!("*{}\r\n{}", items.len(), elements.join(""))
 }
 
 #[cfg(test)]
@@ -378,7 +413,7 @@ mod tests {
         ]));
         assert_eq!(
             handle_command(&cmd_rpush, &storage),
-            "-ERR wrong number of arguments for 'RPUSH' command\r\n"
+            "-ERR wrong number of arguments for command\r\n"
         )
     }
 
@@ -407,6 +442,121 @@ mod tests {
     }
 
     #[test]
+    fn test_lrange_command_works() {
+        let storage = Storage::new();
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"\"element_one\"".to_vec())),
+            RespValue::BulkString(Some(b"\"element_two\"".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_rpush, &storage), ":2\r\n");
+
+        let cmd_lrange = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LRANGE".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::Integer(0),
+            RespValue::Integer(1),
+        ]));
+
+        assert_eq!(
+            handle_command(&cmd_lrange, &storage),
+            "*2\r\n$13\r\n\"element_one\"\r\n$13\r\n\"element_two\"\r\n"
+        );
+    }
+
+    #[test]
+    fn test_lrange_command_return_empty_array_if_list_doenst_exist() {
+        let storage = Storage::new();
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"\"element_one\"".to_vec())),
+            RespValue::BulkString(Some(b"\"element_two\"".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_rpush, &storage), ":2\r\n");
+
+        let cmd_lrange = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LRANGE".to_vec())),
+            RespValue::BulkString(Some(b"not_existed_list".to_vec())),
+            RespValue::Integer(0),
+            RespValue::Integer(1),
+        ]));
+
+        assert_eq!(handle_command(&cmd_lrange, &storage), "*0\r\n");
+    }
+
+    #[test]
+    fn test_lrange_command_return_empty_array_if_start_is_bigger_than_end() {
+        let storage = Storage::new();
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"\"element_one\"".to_vec())),
+            RespValue::BulkString(Some(b"\"element_two\"".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_rpush, &storage), ":2\r\n");
+
+        let cmd_lrange = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LRANGE".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::Integer(3),
+            RespValue::Integer(1),
+        ]));
+
+        assert_eq!(handle_command(&cmd_lrange, &storage), "*0\r\n");
+    }
+
+    #[test]
+    fn test_lrange_command_return_empty_array_if_start_is_bigger_than_len() {
+        let storage = Storage::new();
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"\"element_one\"".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_rpush, &storage), ":1\r\n");
+
+        let cmd_lrange = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LRANGE".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::Integer(2),
+            RespValue::Integer(3),
+        ]));
+
+        assert_eq!(handle_command(&cmd_lrange, &storage), "*0\r\n");
+    }
+
+    #[test]
+    fn test_lrange_command_len_become_end_if_end_is_bigger() {
+        let storage = Storage::new();
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"\"element_one\"".to_vec())),
+            RespValue::BulkString(Some(b"\"element_two\"".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_rpush, &storage), ":2\r\n");
+
+        let cmd_lrange = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LRANGE".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::Integer(0),
+            RespValue::Integer(5),
+        ]));
+
+        assert_eq!(
+            handle_command(&cmd_lrange, &storage),
+            "*2\r\n$13\r\n\"element_one\"\r\n$13\r\n\"element_two\"\r\n"
+        );
+    }
+
+    #[test]
     fn test_lrange_command_doesnt_work_on_keys() {
         let storage = Storage::new();
 
@@ -428,5 +578,18 @@ mod tests {
             handle_command(&cmd, &storage),
             "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
         )
+    }
+
+    #[test]
+    fn test_lrange_command_with_missing_arguments() {
+        let storage = Storage::new();
+        let cmd = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LRANGE".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+        ]));
+        assert_eq!(
+            handle_command(&cmd, &storage),
+            "-ERR wrong number of arguments for command\r\n"
+        );
     }
 }
