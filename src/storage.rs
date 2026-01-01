@@ -136,7 +136,7 @@ impl Storage {
                         )
                     }
                     StoredData::List(list) => {
-                        let len = list.len() as isize; // 5
+                        let len = list.len() as isize;
 
                         let start_idx = if start < 0 {
                             (len + start).max(0) as usize
@@ -301,6 +301,64 @@ mod tests {
     }
 
     #[test]
+    fn test_lrange_with_mix_start_is_positive_end_is_negative() {
+        let storage = Storage::new();
+        let _list = storage.rpush(
+            "my_list".to_string(),
+            vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+        );
+        let result = storage.lrange("my_list", 0, -1);
+        assert_eq!(
+            result,
+            Ok(vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()])
+        )
+    }
+
+    #[test]
+    fn test_lrange_with_mix_start_is_negative_end_is_positive() {
+        let storage = Storage::new();
+        let _list = storage.rpush(
+            "my_list".to_string(),
+            vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+        );
+        let result = storage.lrange("my_list", -2, 2);
+        assert_eq!(result, Ok(vec![b"b".to_vec(), b"c".to_vec()]))
+    }
+
+    #[test]
+    fn test_lrange_with_negative_indexes_only_last_element() {
+        let storage = Storage::new();
+        let _list = storage.rpush(
+            "my_list".to_string(),
+            vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+        );
+        let result = storage.lrange("my_list", -1, -1);
+        assert_eq!(result, Ok(vec![b"c".to_vec()]))
+    }
+
+    #[test]
+    fn test_lrange_with_negative_indexes_start_is_bigger_than_end() {
+        let storage = Storage::new();
+        let _list = storage.rpush(
+            "my_list".to_string(),
+            vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+        );
+        let result = storage.lrange("my_list", -1, -3);
+        assert_eq!(result, Ok(vec![]))
+    }
+
+    #[test]
+    fn test_lrange_with_negative_indexes_both_out_of_range() {
+        let storage = Storage::new();
+        let _list = storage.rpush(
+            "my_list".to_string(),
+            vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+        );
+        let result = storage.lrange("my_list", -100, -200);
+        assert_eq!(result, Ok(vec![b"a".to_vec()]))
+    }
+
+    #[test]
     fn test_lrange_returns_empty_array_if_list_doesnt_exist() {
         let storage = Storage::new();
         let result = storage.lrange("my_list", 0, 1);
@@ -352,11 +410,3 @@ mod tests {
         )
     }
 }
-
-// [0, 1, 2, 3, 4, 5]
-// [a, b, c, d, e] - d,e
-// len 6
-// -2 = len - 2
-// -1 = len - 1
-// - i (if not more that len) = len - i
-// -2 -1 = 3, 4
