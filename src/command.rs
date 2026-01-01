@@ -12,6 +12,7 @@ pub fn handle_command(value: &RespValue, storage: &Storage) -> String {
                 "SET" => handle_set(elements, storage),
                 "GET" => handle_get(elements, storage),
                 "RPUSH" => handle_rpush(elements, storage),
+                "LPUSH" => handle_lpush(elements, storage),
                 "LRANGE" => handle_lrange(elements, storage),
                 _ => format!("-ERR unknown command: '{}'\r\n", command),
             }
@@ -148,6 +149,10 @@ fn handle_rpush(elements: &[RespValue], storage: &Storage) -> String {
         Ok(len) => format!(":{}\r\n", len),
         Err(msg) => format!("-{}\r\n", msg),
     }
+}
+
+fn handle_lpush(elements: &[RespValue], storage: &Storage) -> String {
+    todo!()
 }
 
 fn extract_command_name(value: &RespValue) -> String {
@@ -437,6 +442,105 @@ mod tests {
         ]));
         assert_eq!(
             handle_command(&cmd, &storage),
+            "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
+        )
+    }
+
+    #[test]
+    fn test_lpush_command_works() {
+        let storage = Storage::new();
+
+        let cmd_lpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"a".to_vec())),
+            RespValue::BulkString(Some(b"b".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_lpush, &storage), ":2\r\n")
+    }
+
+    #[test]
+    fn test_lrange_after_lpush_returns_in_reverse_order() {
+        let storage = Storage::new();
+
+        let cmd_lpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"a".to_vec())),
+            RespValue::BulkString(Some(b"b".to_vec())),
+            RespValue::BulkString(Some(b"c".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_lpush, &storage), ":3\r\n");
+
+        let cmd_lrange = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LRANGE".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::Integer(0),
+            RespValue::Integer(-1),
+        ]));
+
+        assert_eq!(
+            handle_command(&cmd_lrange, &storage),
+            "*3\r\n$1\r\nc\r\n$1\r\nb\r\n$1\r\na\r\n"
+        );
+    }
+
+    #[test]
+    fn test_lpush_command_appends_to_existing_list() {
+        let storage = Storage::new();
+
+        let cmd_lpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"a".to_vec())),
+            RespValue::BulkString(Some(b"b".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_lpush, &storage), ":2\r\n");
+
+        let cmd_lpush_second = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"c".to_vec())),
+            RespValue::BulkString(Some(b"d".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_lpush_second, &storage), ":4\r\n");
+    }
+
+    #[test]
+    fn test_lpush_command_returns_error_on_wrong_number_of_arguments() {
+        let storage = Storage::new();
+
+        let cmd_lpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+        ]));
+        assert_eq!(
+            handle_command(&cmd_lpush, &storage),
+            "-ERR wrong number of arguments for command\r\n"
+        )
+    }
+
+    #[test]
+    fn test_lpush_command_doesnt_work_on_keys() {
+        let storage = Storage::new();
+
+        let cmd_set = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"SET".to_vec())),
+            RespValue::BulkString(Some(b"key".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_set, &storage), "+OK\r\n");
+
+        let cmd_lpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPUSH".to_vec())),
+            RespValue::BulkString(Some(b"key".to_vec())),
+            RespValue::BulkString(Some(b"\"element_one\"".to_vec())),
+            RespValue::BulkString(Some(b"\"element_two\"".to_vec())),
+        ]));
+        assert_eq!(
+            handle_command(&cmd_lpush, &storage),
             "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
         )
     }

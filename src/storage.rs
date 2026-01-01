@@ -118,6 +118,9 @@ impl Storage {
         Ok(len)
     }
 
+    pub fn lpush(&self, key: String, values: Vec<Vec<u8>>) -> Result<usize, String> {
+        todo!()
+    }
     pub fn lrange(&self, key: &str, start: isize, end: isize) -> Result<Vec<Vec<u8>>, String> {
         let mut store = self.inner.lock().unwrap();
         match store.get(key) {
@@ -244,6 +247,48 @@ mod tests {
         let storage = Storage::new();
         storage.set("key".to_string(), b"value".to_vec());
         let err = storage.rpush(
+            "key".to_string(),
+            vec![b"first".to_vec(), b"second".to_vec()],
+        );
+
+        assert_eq!(
+            err,
+            Err("WRONGTYPE Operation against a key holding the wrong kind of value".to_string())
+        )
+    }
+
+    #[test]
+    fn test_lpush_list_not_exist() {
+        let storage = Storage::new();
+        let result = storage.lpush("my_list".to_string(), vec![b"a".to_vec(), b"b".to_vec()]);
+        assert_eq!(result, Ok(2));
+
+        let list = storage.lrange("my_list", 0, -1);
+        assert_eq!(list, Ok(vec![b"b".to_vec(), b"a".to_vec()]))
+    }
+
+    #[test]
+    fn test_lpush_list_exist() {
+        let storage = Storage::new();
+        storage
+            .lpush("my_list".to_string(), vec![b"c".to_vec()])
+            .unwrap();
+        // list is: [c]
+
+        let result = storage.lpush("my_list".to_string(), vec![b"b".to_vec(), b"a".to_vec()]);
+        // b pushed first -> [b, c]
+        // a pushed second -> [a, b, c]
+        assert_eq!(result, Ok(3));
+
+        let list = storage.lrange("my_list", 0, -1);
+        assert_eq!(list, Ok(vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()]))
+    }
+
+    #[test]
+    fn test_lpush_wrong_type() {
+        let storage = Storage::new();
+        storage.set("key".to_string(), b"value".to_vec());
+        let err = storage.lpush(
             "key".to_string(),
             vec![b"first".to_vec(), b"second".to_vec()],
         );
