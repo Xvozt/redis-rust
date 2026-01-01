@@ -136,15 +136,24 @@ impl Storage {
                         )
                     }
                     StoredData::List(list) => {
-                        let start_idx = start as usize;
-                        let mut end_idx = end as usize;
+                        let len = list.len() as isize; // 5
+
+                        let start_idx = if start < 0 {
+                            (len + start).max(0) as usize
+                        } else {
+                            start as usize
+                        };
+
+                        let end_idx = if end < 0 {
+                            (len + end).max(0) as usize
+                        } else if end >= len {
+                            list.len() - 1
+                        } else {
+                            end as usize
+                        };
 
                         if start_idx > end_idx || start_idx >= list.len() {
                             return Ok(vec![]);
-                        }
-
-                        if end_idx >= list.len() {
-                            end_idx = list.len() - 1;
                         }
 
                         Ok(list[start_idx..=end_idx].to_vec())
@@ -275,6 +284,23 @@ mod tests {
     }
 
     #[test]
+    fn test_lrange_with_negative_indexes() {
+        let storage = Storage::new();
+        let _list = storage.rpush(
+            "my_list".to_string(),
+            vec![
+                b"a".to_vec(),
+                b"a".to_vec(),
+                b"c".to_vec(),
+                b"d".to_vec(),
+                b"e".to_vec(),
+            ],
+        );
+        let result = storage.lrange("my_list", -2, -1);
+        assert_eq!(result, Ok(vec![b"d".to_vec(), b"e".to_vec()]))
+    }
+
+    #[test]
     fn test_lrange_returns_empty_array_if_list_doesnt_exist() {
         let storage = Storage::new();
         let result = storage.lrange("my_list", 0, 1);
@@ -326,3 +352,11 @@ mod tests {
         )
     }
 }
+
+// [0, 1, 2, 3, 4, 5]
+// [a, b, c, d, e] - d,e
+// len 6
+// -2 = len - 2
+// -1 = len - 1
+// - i (if not more that len) = len - i
+// -2 -1 = 3, 4
