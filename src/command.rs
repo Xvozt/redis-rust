@@ -14,6 +14,7 @@ pub fn handle_command(value: &RespValue, storage: &Storage) -> String {
                 "RPUSH" => handle_rpush(elements, storage),
                 "LPUSH" => handle_lpush(elements, storage),
                 "LRANGE" => handle_lrange(elements, storage),
+                "LLEN" => handle_llen(elements, storage),
                 _ => format!("-ERR unknown command: '{}'\r\n", command),
             }
         }
@@ -35,6 +36,23 @@ fn handle_echo(elements: &[RespValue]) -> String {
         }
         RespValue::SimpleString(msg) => return format!("${}\r\n{}\r\n", msg.len(), msg),
         _ => "-ERR invalid argument type\r\n".to_string(),
+    }
+}
+
+fn handle_get(elements: &[RespValue], storage: &Storage) -> String {
+    if elements.len() < 2 {
+        return "-ERR wrong number of arguments for 'GET' command\r\n".to_string();
+    }
+
+    let key = match &elements[1] {
+        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
+        RespValue::SimpleString(s) => s.clone(),
+        _ => return "-ERR Invalid key type\r\n".to_string(),
+    };
+
+    match storage.get(&key) {
+        Some(v) => format!("${}\r\n{}\r\n", v.len(), String::from_utf8_lossy(&v)),
+        None => "$-1\r\n".to_string(),
     }
 }
 
@@ -104,23 +122,6 @@ fn handle_set(elements: &[RespValue], storage: &Storage) -> String {
     "+OK\r\n".to_string()
 }
 
-fn handle_get(elements: &[RespValue], storage: &Storage) -> String {
-    if elements.len() < 2 {
-        return "-ERR wrong number of arguments for 'GET' command\r\n".to_string();
-    }
-
-    let key = match &elements[1] {
-        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
-        RespValue::SimpleString(s) => s.clone(),
-        _ => return "-ERR Invalid key type\r\n".to_string(),
-    };
-
-    match storage.get(&key) {
-        Some(v) => format!("${}\r\n{}\r\n", v.len(), String::from_utf8_lossy(&v)),
-        None => "$-1\r\n".to_string(),
-    }
-}
-
 fn handle_list_push<F>(elements: &[RespValue], push_fn: F) -> String
 where
     F: FnOnce(String, Vec<Vec<u8>>) -> Result<usize, String>,
@@ -162,23 +163,6 @@ fn handle_lpush(elements: &[RespValue], storage: &Storage) -> String {
     handle_list_push(elements, |k, v| storage.lpush(k, v))
 }
 
-fn extract_command_name(value: &RespValue) -> String {
-    match value {
-        RespValue::BulkString(Some(cmd)) => String::from_utf8_lossy(cmd).to_uppercase(),
-        RespValue::SimpleString(cmd) => cmd.to_uppercase(),
-        _ => String::new(),
-    }
-}
-
-fn extract_integer_from_resp_value(value: &RespValue) -> Option<i64> {
-    match value {
-        RespValue::Integer(i) => Some(*i),
-        RespValue::BulkString(Some(bytes)) => String::from_utf8_lossy(bytes).parse::<i64>().ok(),
-        RespValue::SimpleString(s) => s.parse::<i64>().ok(),
-        _ => None,
-    }
-}
-
 fn handle_lrange(elements: &[RespValue], storage: &Storage) -> String {
     if elements.len() != 4 {
         return "-ERR wrong number of arguments for command\r\n".to_string();
@@ -203,6 +187,40 @@ fn handle_lrange(elements: &[RespValue], storage: &Storage) -> String {
     match storage.lrange(&key, start, end) {
         Ok(items) => format_array(items),
         Err(e) => format!("-{}\r\n", e),
+    }
+}
+
+fn handle_llen(elements: &[RespValue], storage: &Storage) -> String {
+    if elements.len() != 2 {
+        return "-ERR wrong number of arguments for command\r\n".to_string();
+    }
+
+    let key = match &elements[1] {
+        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
+        RespValue::SimpleString(s) => s.clone(),
+        _ => return "-ERR Invalid key type\r\n".to_string(),
+    };
+
+    match storage.llen(&key) {
+        Ok(len) => format!(":{}\r\n", len),
+        Err(e) => format!("-{}\r\n", e),
+    }
+}
+
+fn extract_command_name(value: &RespValue) -> String {
+    match value {
+        RespValue::BulkString(Some(cmd)) => String::from_utf8_lossy(cmd).to_uppercase(),
+        RespValue::SimpleString(cmd) => cmd.to_uppercase(),
+        _ => String::new(),
+    }
+}
+
+fn extract_integer_from_resp_value(value: &RespValue) -> Option<i64> {
+    match value {
+        RespValue::Integer(i) => Some(*i),
+        RespValue::BulkString(Some(bytes)) => String::from_utf8_lossy(bytes).parse::<i64>().ok(),
+        RespValue::SimpleString(s) => s.parse::<i64>().ok(),
+        _ => None,
     }
 }
 
@@ -524,6 +542,62 @@ mod tests {
         ]));
         assert_eq!(
             handle_command(&cmd_lpush, &storage),
+            "-ERR wrong number of arguments for command\r\n"
+        )
+    }
+
+    #[test]
+    fn test_llen_command_returns_len_for_list() {
+        let storage = Storage::new();
+
+        let cmd_lpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"c".to_vec())),
+            RespValue::BulkString(Some(b"d".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_lpush, &storage), ":2\r\n");
+
+        let cmd_llen = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LLEN".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_llen, &storage), ":2\r\n")
+    }
+
+    #[test]
+    fn test_llen_command_returns_zero_for_nonexisting_list() {
+        let storage = Storage::new();
+
+        let cmd_llen = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LLEN".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_llen, &storage), ":0\r\n")
+    }
+
+    #[test]
+    fn test_llen_command_returns_error_on_wrong_number_of_arguments() {
+        let storage = Storage::new();
+
+        let _cmd_lpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"c".to_vec())),
+            RespValue::BulkString(Some(b"d".to_vec())),
+        ]));
+
+        let cmd_llen = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LLEN".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"c".to_vec())),
+        ]));
+
+        assert_eq!(
+            handle_command(&cmd_llen, &storage),
             "-ERR wrong number of arguments for command\r\n"
         )
     }

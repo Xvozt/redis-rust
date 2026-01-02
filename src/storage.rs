@@ -193,6 +193,30 @@ impl Storage {
         }
     }
 
+    pub fn llen(&self, key: &str) -> Result<usize, String> {
+        let mut store = self.inner.lock().unwrap();
+
+        match store.get(key) {
+            None => Ok(0),
+            Some(stored_value) => {
+                if stored_value.is_expired() {
+                    store.remove(key);
+                    return Ok(0);
+                }
+
+                match &stored_value.data {
+                    StoredData::String(_) => {
+                        return Err(
+                            "WRONGTYPE Operation against a key holding the wrong kind of value"
+                                .to_string(),
+                        )
+                    }
+                    StoredData::List(list) => return Ok(list.len()),
+                }
+            }
+        }
+    }
+
     pub fn exists(&self, key: &str) -> bool {
         let store = self.inner.lock().unwrap();
         store.contains_key(key)
@@ -475,6 +499,33 @@ mod tests {
         let storage = Storage::new();
         storage.set("key".to_string(), b"value".to_vec());
         let err = storage.lrange("key", 0, 0);
+
+        assert_eq!(
+            err,
+            Err("WRONGTYPE Operation against a key holding the wrong kind of value".to_string())
+        )
+    }
+
+    #[test]
+    fn test_llen_works_for_existing_list() {
+        let storage = Storage::new();
+        let _list = storage.rpush("my_list".to_string(), vec![b"a".to_vec(), b"b".to_vec()]);
+        let result = storage.llen("my_list");
+        assert_eq!(result, Ok(2))
+    }
+
+    #[test]
+    fn test_llen_works_for_non_existing_list_returns_zero_len() {
+        let storage = Storage::new();
+        let result = storage.llen("my_list");
+        assert_eq!(result, Ok(0))
+    }
+
+    #[test]
+    fn test_llen_doest_work_for_maps() {
+        let storage = Storage::new();
+        storage.set("key".to_string(), b"value".to_vec());
+        let err = storage.llen("key");
 
         assert_eq!(
             err,
