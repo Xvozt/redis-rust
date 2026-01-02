@@ -119,8 +119,35 @@ impl Storage {
     }
 
     pub fn lpush(&self, key: String, values: Vec<Vec<u8>>) -> Result<usize, String> {
-        todo!()
+        let mut store = self.inner.lock().unwrap();
+
+        let mut result = values.into_iter().rev().collect::<Vec<Vec<u8>>>();
+
+        if let Some(stored_value) = store.get_mut(&key) {
+            if stored_value.is_expired() {
+                store.remove(&key);
+            } else {
+                match &mut stored_value.data {
+                    StoredData::List(list) => {
+                        result.append(list);
+                        *list = result;
+                        return Ok(list.len());
+                    }
+                    StoredData::String(_) => {
+                        return Err(
+                            "WRONGTYPE Operation against a key holding the wrong kind of value"
+                                .to_string(),
+                        )
+                    }
+                }
+            }
+        }
+
+        let len = result.len();
+        store.insert(key, StoredValue::new(StoredData::List(result)));
+        Ok(len)
     }
+
     pub fn lrange(&self, key: &str, start: isize, end: isize) -> Result<Vec<Vec<u8>>, String> {
         let mut store = self.inner.lock().unwrap();
         match store.get(key) {

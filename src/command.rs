@@ -121,7 +121,10 @@ fn handle_get(elements: &[RespValue], storage: &Storage) -> String {
     }
 }
 
-fn handle_rpush(elements: &[RespValue], storage: &Storage) -> String {
+fn handle_list_push<F>(elements: &[RespValue], push_fn: F) -> String
+where
+    F: FnOnce(String, Vec<Vec<u8>>) -> Result<usize, String>,
+{
     if elements.len() < 3 {
         return "-ERR wrong number of arguments for command\r\n".to_string();
     };
@@ -145,14 +148,18 @@ fn handle_rpush(elements: &[RespValue], storage: &Storage) -> String {
         Err(e) => return e,
     };
 
-    match storage.rpush(key, values) {
+    match push_fn(key, values) {
         Ok(len) => format!(":{}\r\n", len),
         Err(msg) => format!("-{}\r\n", msg),
     }
 }
 
+fn handle_rpush(elements: &[RespValue], storage: &Storage) -> String {
+    handle_list_push(elements, |k, v| storage.rpush(k, v))
+}
+
 fn handle_lpush(elements: &[RespValue], storage: &Storage) -> String {
-    todo!()
+    handle_list_push(elements, |k, v| storage.lpush(k, v))
 }
 
 fn extract_command_name(value: &RespValue) -> String {
