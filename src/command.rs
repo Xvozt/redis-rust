@@ -15,6 +15,7 @@ pub fn handle_command(value: &RespValue, storage: &Storage) -> String {
                 "LPUSH" => handle_lpush(elements, storage),
                 "LRANGE" => handle_lrange(elements, storage),
                 "LLEN" => handle_llen(elements, storage),
+                "LPOP" => handle_lpop(elements, storage),
                 _ => format!("-ERR unknown command: '{}'\r\n", command),
             }
         }
@@ -203,6 +204,26 @@ fn handle_llen(elements: &[RespValue], storage: &Storage) -> String {
 
     match storage.llen(&key) {
         Ok(len) => format!(":{}\r\n", len),
+        Err(e) => format!("-{}\r\n", e),
+    }
+}
+
+fn handle_lpop(elements: &[RespValue], storage: &Storage) -> String {
+    if elements.len() != 2 {
+        return "-ERR wrong number of arguments for command\r\n".to_string();
+    };
+
+    let key = match &elements[1] {
+        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
+        RespValue::SimpleString(s) => s.clone(),
+        _ => return "-ERR Invalid key type\r\n".to_string(),
+    };
+
+    match storage.lpop(&key) {
+        Ok(v) => match v {
+            Some(v) => format!("${}\r\n{}\r\n", v.len(), String::from_utf8_lossy(&v)),
+            None => "$-1\r\n".to_string(),
+        },
         Err(e) => format!("-{}\r\n", e),
     }
 }
@@ -583,13 +604,6 @@ mod tests {
     fn test_llen_command_returns_error_on_wrong_number_of_arguments() {
         let storage = Storage::new();
 
-        let _cmd_lpush = RespValue::Array(Some(vec![
-            RespValue::BulkString(Some(b"LPUSH".to_vec())),
-            RespValue::BulkString(Some(b"list".to_vec())),
-            RespValue::BulkString(Some(b"c".to_vec())),
-            RespValue::BulkString(Some(b"d".to_vec())),
-        ]));
-
         let cmd_llen = RespValue::Array(Some(vec![
             RespValue::BulkString(Some(b"LLEN".to_vec())),
             RespValue::BulkString(Some(b"list".to_vec())),
@@ -776,5 +790,91 @@ mod tests {
             handle_command(&cmd, &storage),
             "-ERR wrong number of arguments for command\r\n"
         );
+    }
+
+    #[test]
+    fn test_lpop_command_returns_popped_element() {
+        let storage = Storage::new();
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"a".to_vec())),
+            RespValue::BulkString(Some(b"b".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_rpush, &storage), ":2\r\n");
+
+        let cmd_lpop = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPOP".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_lpop, &storage), "$1\r\na\r\n");
+    }
+
+    #[test]
+    fn test_lpop_command_returns_null_string_for_non_existing() {
+        let storage = Storage::new();
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"a".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_rpush, &storage), ":1\r\n");
+
+        let cmd_lpop = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPOP".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_lpop, &storage), "$1\r\na\r\n");
+
+        let cmd_lpop = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPOP".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_lpop, &storage), "$-1\r\n");
+    }
+
+    #[test]
+    fn test_lpop_command_returns_error_on_wrong_number_of_arguments() {
+        let storage = Storage::new();
+
+        let cmd_lpop = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPOP".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"c".to_vec())),
+        ]));
+
+        assert_eq!(
+            handle_command(&cmd_lpop, &storage),
+            "-ERR wrong number of arguments for command\r\n"
+        )
+    }
+
+    #[test]
+    fn test_lpop_command_doesnt_work_on_keys() {
+        let storage = Storage::new();
+
+        let cmd_set = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"SET".to_vec())),
+            RespValue::BulkString(Some(b"key".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_set, &storage), "+OK\r\n");
+
+        let cmd_lpop = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPOP".to_vec())),
+            RespValue::BulkString(Some(b"key".to_vec())),
+        ]));
+        assert_eq!(
+            handle_command(&cmd_lpop, &storage),
+            "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
+        )
     }
 }

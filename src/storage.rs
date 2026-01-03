@@ -217,6 +217,39 @@ impl Storage {
         }
     }
 
+    pub fn lpop(&self, key: &str) -> Result<Option<Vec<u8>>, String> {
+        let mut store = self.inner.lock().unwrap();
+        match store.get_mut(key) {
+            None => Ok(None),
+            Some(stored_value) => {
+                if stored_value.is_expired() {
+                    store.remove(key);
+                    return Ok(None);
+                }
+
+                match &mut stored_value.data {
+                    StoredData::String(_) => {
+                        return Err(
+                            "WRONGTYPE Operation against a key holding the wrong kind of value"
+                                .to_string(),
+                        )
+                    }
+                    StoredData::List(list) => {
+                        if list.is_empty() {
+                            store.remove(key);
+                            return Ok(None);
+                        }
+                        let element = list.remove(0);
+                        if list.is_empty() {
+                            store.remove(key);
+                        }
+                        return Ok(Some(element));
+                    }
+                }
+            }
+        }
+    }
+
     pub fn exists(&self, key: &str) -> bool {
         let store = self.inner.lock().unwrap();
         store.contains_key(key)
@@ -526,6 +559,59 @@ mod tests {
         let storage = Storage::new();
         storage.set("key".to_string(), b"value".to_vec());
         let err = storage.llen("key");
+
+        assert_eq!(
+            err,
+            Err("WRONGTYPE Operation against a key holding the wrong kind of value".to_string())
+        )
+    }
+
+    #[test]
+    fn test_lpop_works_for_existing_list() {
+        let storage = Storage::new();
+
+        let _list = storage.rpush(
+            "list".to_string(),
+            vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+        );
+
+        let poped_element = storage.lpop("list");
+        assert_eq!(poped_element, Ok(Some(b"a".to_vec())));
+
+        let left_elements = storage.lrange("list", 0, -1);
+
+        assert_eq!(left_elements, Ok(vec![b"b".to_vec(), b"c".to_vec()]));
+    }
+
+    #[test]
+    fn test_lpop_returns_null_string_for_nonexisting_list() {
+        let storage = Storage::new();
+
+        let poped_element = storage.lpop("nonexisting_list");
+        assert_eq!(poped_element, Ok(None));
+    }
+
+    #[test]
+    fn test_lpop_returns_null_string_for_empty_list() {
+        let storage = Storage::new();
+
+        let _list = storage.rpush("list".to_string(), vec![b"a".to_vec()]);
+
+        let poped_element = storage.lpop("list");
+        assert_eq!(poped_element, Ok(Some(b"a".to_vec())));
+
+        let left_elements = storage.lrange("list", 0, -1);
+        assert_eq!(left_elements, Ok(vec![]));
+
+        let poped_element = storage.lpop("list");
+        assert_eq!(poped_element, Ok(None));
+    }
+
+    #[test]
+    fn test_lpop_doest_work_for_maps() {
+        let storage = Storage::new();
+        storage.set("key".to_string(), b"value".to_vec());
+        let err = storage.lpop("key");
 
         assert_eq!(
             err,
