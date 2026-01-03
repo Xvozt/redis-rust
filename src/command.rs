@@ -220,10 +220,8 @@ fn handle_lpop(elements: &[RespValue], storage: &Storage) -> String {
     };
 
     match storage.lpop(&key) {
-        Ok(v) => match v {
-            Some(v) => format!("${}\r\n{}\r\n", v.len(), String::from_utf8_lossy(&v)),
-            None => "$-1\r\n".to_string(),
-        },
+        Ok(Some(v)) => format!("${}\r\n{}\r\n", v.len(), String::from_utf8_lossy(&v)),
+        Ok(None) => "$-1\r\n".to_string(),
         Err(e) => format!("-{}\r\n", e),
     }
 }
