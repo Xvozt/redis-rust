@@ -45,11 +45,7 @@ fn handle_get(elements: &[RespValue], storage: &Storage) -> String {
         return "-ERR wrong number of arguments for 'GET' command\r\n".to_string();
     }
 
-    let key = match &elements[1] {
-        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
-        RespValue::SimpleString(s) => s.clone(),
-        _ => return "-ERR Invalid key type\r\n".to_string(),
-    };
+    let key = extract_key(&elements[1]);
 
     match storage.get(&key) {
         Some(v) => format!("${}\r\n{}\r\n", v.len(), String::from_utf8_lossy(&v)),
@@ -62,11 +58,7 @@ fn handle_set(elements: &[RespValue], storage: &Storage) -> String {
         return "-ERR wrong number of arguments for 'SET' command\r\n".to_string();
     }
 
-    let key = match &elements[1] {
-        RespValue::BulkString(Some(k)) => String::from_utf8_lossy(k).to_string(),
-        RespValue::SimpleString(s) => s.clone(),
-        _ => return "-ERR Invalid key type\r\n".to_string(),
-    };
+    let key = extract_key(&elements[1]);
 
     let value = match &elements[2] {
         RespValue::BulkString(Some(v)) => v.clone(),
@@ -131,11 +123,8 @@ where
         return "-ERR wrong number of arguments for command\r\n".to_string();
     };
 
-    let key = match &elements[1] {
-        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
-        RespValue::SimpleString(s) => s.clone(),
-        _ => return "-ERR Invalid key type\r\n".to_string(),
-    };
+    let key = extract_key(&elements[1]);
+
     let values: Result<Vec<Vec<u8>>, String> = elements[2..]
         .iter()
         .map(|value| match value {
@@ -169,11 +158,7 @@ fn handle_lrange(elements: &[RespValue], storage: &Storage) -> String {
         return "-ERR wrong number of arguments for command\r\n".to_string();
     };
 
-    let key = match &elements[1] {
-        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
-        RespValue::SimpleString(s) => s.clone(),
-        _ => return "-ERR Invalid key type\r\n".to_string(),
-    };
+    let key = extract_key(&elements[1]);
 
     let start = match extract_integer_from_resp_value(&elements[2]) {
         Some(i) => i as isize,
@@ -196,11 +181,7 @@ fn handle_llen(elements: &[RespValue], storage: &Storage) -> String {
         return "-ERR wrong number of arguments for command\r\n".to_string();
     }
 
-    let key = match &elements[1] {
-        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
-        RespValue::SimpleString(s) => s.clone(),
-        _ => return "-ERR Invalid key type\r\n".to_string(),
-    };
+    let key = extract_key(&elements[1]);
 
     match storage.llen(&key) {
         Ok(len) => format!(":{}\r\n", len),
@@ -209,20 +190,31 @@ fn handle_llen(elements: &[RespValue], storage: &Storage) -> String {
 }
 
 fn handle_lpop(elements: &[RespValue], storage: &Storage) -> String {
-    if elements.len() != 2 {
-        return "-ERR wrong number of arguments for command\r\n".to_string();
-    };
+    match elements.len() {
+        2 => {
+            let key = extract_key(&elements[1]);
 
-    let key = match &elements[1] {
-        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
-        RespValue::SimpleString(s) => s.clone(),
-        _ => return "-ERR Invalid key type\r\n".to_string(),
-    };
+            match storage.lpop(&key) {
+                Ok(Some(v)) => format!("${}\r\n{}\r\n", v.len(), String::from_utf8_lossy(&v)),
+                Ok(None) => "$-1\r\n".to_string(),
+                Err(e) => format!("-{}\r\n", e),
+            }
+        }
 
-    match storage.lpop(&key) {
-        Ok(Some(v)) => format!("${}\r\n{}\r\n", v.len(), String::from_utf8_lossy(&v)),
-        Ok(None) => "$-1\r\n".to_string(),
-        Err(e) => format!("-{}\r\n", e),
+        3 => {
+            let key = extract_key(&elements[1]);
+            let count = match extract_integer_from_resp_value(&elements[2]) {
+                Some(i) => i as isize,
+                None => return "value is out of range, must be positive\r\n".to_string(),
+            };
+
+            match storage.lpop_multiple(&key, count as usize) {
+                Ok(Some(items)) => format_array(items),
+                Ok(None) => "$-1\r\n".to_string(),
+                Err(e) => format!("-{}\r\n", e),
+            }
+        }
+        _ => return "-ERR wrong number of arguments for command\r\n".to_string(),
     }
 }
 
@@ -231,6 +223,14 @@ fn extract_command_name(value: &RespValue) -> String {
         RespValue::BulkString(Some(cmd)) => String::from_utf8_lossy(cmd).to_uppercase(),
         RespValue::SimpleString(cmd) => cmd.to_uppercase(),
         _ => String::new(),
+    }
+}
+
+fn extract_key(key_candidate: &RespValue) -> String {
+    match key_candidate {
+        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
+        RespValue::SimpleString(s) => s.clone(),
+        _ => return "-ERR Invalid key type\r\n".to_string(),
     }
 }
 
@@ -812,6 +812,78 @@ mod tests {
     }
 
     #[test]
+    fn test_lpop_command_returns_number_of_elements_if_called_with_count() {
+        let storage = Storage::new();
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"a".to_vec())),
+            RespValue::BulkString(Some(b"b".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_rpush, &storage), ":2\r\n");
+
+        let cmd_lpop_multiple = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPOP".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"2".to_vec())),
+        ]));
+
+        assert_eq!(
+            handle_command(&cmd_lpop_multiple, &storage),
+            "*2\r\n$1\r\na\r\n$1\r\nb\r\n"
+        );
+    }
+
+    #[test]
+    fn test_lpop_command_returns_all_elements_if_count_more_than_length_of_array() {
+        let storage = Storage::new();
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"a".to_vec())),
+            RespValue::BulkString(Some(b"b".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_rpush, &storage), ":2\r\n");
+
+        let cmd_lpop_multiple = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPOP".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"3".to_vec())),
+        ]));
+
+        assert_eq!(
+            handle_command(&cmd_lpop_multiple, &storage),
+            "*2\r\n$1\r\na\r\n$1\r\nb\r\n"
+        );
+    }
+
+    #[test]
+    fn test_lpop_command_returns_empty_array_if_count_is_zero() {
+        let storage = Storage::new();
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"a".to_vec())),
+            RespValue::BulkString(Some(b"b".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_rpush, &storage), ":2\r\n");
+
+        let cmd_lpop_multiple = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LPOP".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"0".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_lpop_multiple, &storage), "*0\r\n");
+    }
+
+    #[test]
     fn test_lpop_command_returns_null_string_for_non_existing() {
         let storage = Storage::new();
 
@@ -845,7 +917,8 @@ mod tests {
         let cmd_lpop = RespValue::Array(Some(vec![
             RespValue::BulkString(Some(b"LPOP".to_vec())),
             RespValue::BulkString(Some(b"list".to_vec())),
-            RespValue::BulkString(Some(b"c".to_vec())),
+            RespValue::BulkString(Some(b"5".to_vec())),
+            RespValue::BulkString(Some(b"6".to_vec())),
         ]));
 
         assert_eq!(
