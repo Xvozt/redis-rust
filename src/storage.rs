@@ -1,5 +1,6 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, VecDeque};
+use std::sync::mpsc::{self, Sender};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, SystemTime};
 
 #[derive(Clone, Debug)]
@@ -44,15 +45,22 @@ impl StoredValue {
     }
 }
 
+struct Waiter {
+    keys: Vec<String>,
+    sender: Sender<(String, Vec<u8>)>,
+}
+
 #[derive(Clone)]
 pub struct Storage {
     inner: Arc<Mutex<HashMap<String, StoredValue>>>,
+    waiters: Arc<Mutex<VecDeque<Waiter>>>,
 }
 
 impl Storage {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(HashMap::new())),
+            waiters: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
@@ -286,6 +294,48 @@ impl Storage {
                         return Ok(Some(elements));
                     }
                 }
+            }
+        }
+    }
+
+    pub fn blpop(
+        &self,
+        keys: Vec<String>,
+        timeout_secs: u64,
+    ) -> Result<Option<(String, Vec<u8>)>, String> {
+        for key in &keys {
+            let store = self.inner.lock().unwrap();
+
+            if let Some(stored_value) = store.get(key) {
+                if !matches!(stored_value.data, StoredData::List(_)) {
+                    return Err(
+                        "WRONGTYPE Operation against a key holding the wrong kind of value"
+                            .to_string(),
+                    );
+                }
+            }
+
+            drop(store);
+
+            if let Some(value) = self.lpop(key)? {
+                return Ok(Some((key.clone(), value)));
+            }
+        }
+
+        let (tx, rx) = mpsc::channel();
+
+        let waiter = Waiter {
+            keys: keys.clone(),
+            sender: tx,
+        };
+
+        self.waiters.lock().unwrap().push_back(waiter);
+        let timeout = Duration::from_secs(timeout_secs);
+        match rx.recv_timeout(timeout) {
+            Ok((key, value)) => Ok(Some((key, value))),
+            Err(_) => {
+                self.waiters.lock().unwrap().retain(|w| w.keys != keys);
+                Ok(None)
             }
         }
     }
@@ -747,6 +797,57 @@ mod tests {
         let storage = Storage::new();
         storage.set("key".to_string(), b"value".to_vec());
         let err = storage.lpop_multiple("key", 1);
+
+        assert_eq!(
+            err,
+            Err("WRONGTYPE Operation against a key holding the wrong kind of value".to_string())
+        )
+    }
+
+    #[test]
+    // #[ignore]
+    fn test_blpop_command_works_and_returns_result_immediately_if_at_least_one_key_is_present() {
+        let storage = Storage::new();
+
+        let _list = storage.rpush(
+            "list".to_string(),
+            vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+        );
+
+        let popped = storage.blpop(vec!["list".to_string()], 10);
+        assert_eq!(Ok(Some(("list".to_string(), b"a".to_vec()))), popped);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_blpop_comand_with_timeout_works_and_returns_array_with_key_and_popped_value() {
+        todo!()
+    }
+
+    #[test]
+    #[ignore]
+    fn test_blpop_comand_with_and_two_clients_should_return_for_the_one_who_waits_the_longest() {
+        todo!()
+    }
+
+    #[test]
+    #[ignore]
+    fn test_blpop_command_returns_none_if_no_value_inserted_and_time_is_expired() {
+        todo!()
+    }
+
+    #[test]
+    #[ignore]
+    fn test_inifinte_block_with_timeout_set_to_zero() {
+        todo!()
+    }
+
+    #[test]
+    // #[ignore]
+    fn test_blpop_command_doesnt_work_on_maps() {
+        let storage = Storage::new();
+        storage.set("key".to_string(), b"value".to_vec());
+        let err = storage.blpop(vec![String::from("key")], 10);
 
         assert_eq!(
             err,
