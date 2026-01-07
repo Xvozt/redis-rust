@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{self, Sender};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 #[derive(Clone, Debug)]
@@ -109,7 +109,10 @@ impl Storage {
                 match &mut stored_value.data {
                     StoredData::List(list) => {
                         list.extend(values);
-                        return Ok(list.len());
+                        let len = list.len();
+                        drop(store);
+                        self.notify_waiters(&key);
+                        return Ok(len);
                     }
                     StoredData::String(_) => {
                         return Err(
@@ -122,7 +125,9 @@ impl Storage {
         }
 
         let len = values.len();
-        store.insert(key, StoredValue::new(StoredData::List(values)));
+        store.insert(key.clone(), StoredValue::new(StoredData::List(values)));
+        drop(store);
+        self.notify_waiters(&key);
         Ok(len)
     }
 
@@ -139,7 +144,10 @@ impl Storage {
                     StoredData::List(list) => {
                         result.append(list);
                         *list = result;
-                        return Ok(list.len());
+                        let len = list.len();
+                        drop(store);
+                        self.notify_waiters(&key);
+                        return Ok(len);
                     }
                     StoredData::String(_) => {
                         return Err(
@@ -152,7 +160,9 @@ impl Storage {
         }
 
         let len = result.len();
-        store.insert(key, StoredValue::new(StoredData::List(result)));
+        store.insert(key.clone(), StoredValue::new(StoredData::List(result)));
+        drop(store);
+        self.notify_waiters(&key);
         Ok(len)
     }
 
@@ -347,6 +357,22 @@ impl Storage {
     pub fn delete(&self, key: &str) -> bool {
         let mut store = self.inner.lock().unwrap();
         store.remove(key).is_some()
+    }
+
+    fn notify_waiters(&self, key: &str) {
+        let waiter: Option<Waiter> = {
+            let mut waiters = self.waiters.lock().unwrap();
+            waiters
+                .iter()
+                .position(|w| w.keys.contains(&key.to_string()))
+                .and_then(|pos| waiters.remove(pos))
+        };
+
+        if let Some(waiter) = waiter {
+            if let Ok(Some(value)) = self.lpop(key) {
+                let _ = waiter.sender.send((key.to_string(), value));
+            }
+        }
     }
 }
 
@@ -805,7 +831,6 @@ mod tests {
     }
 
     #[test]
-    // #[ignore]
     fn test_blpop_command_works_and_returns_result_immediately_if_at_least_one_key_is_present() {
         let storage = Storage::new();
 
@@ -814,20 +839,60 @@ mod tests {
             vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
         );
 
-        let popped = storage.blpop(vec!["list".to_string()], 10);
+        let popped = storage.blpop(
+            vec!["list".to_string(), "list2".to_string(), "list3".to_string()],
+            10,
+        );
         assert_eq!(Ok(Some(("list".to_string(), b"a".to_vec()))), popped);
     }
 
     #[test]
-    #[ignore]
     fn test_blpop_comand_with_timeout_works_and_returns_array_with_key_and_popped_value() {
-        todo!()
+        let storage = Storage::new();
+
+        let storage_clone = storage.clone();
+
+        let handle = std::thread::spawn(move || {
+            let result = storage_clone.blpop(vec!["list".to_string()], 5);
+            result
+        });
+
+        std::thread::sleep(Duration::from_millis(100));
+
+        storage
+            .rpush("list".to_string(), vec![b"a".to_vec()])
+            .unwrap();
+
+        let result = handle.join().unwrap();
+        assert_eq!(result, Ok(Some(("list".to_string(), b"a".to_vec()))));
     }
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn test_blpop_comand_with_and_two_clients_should_return_for_the_one_who_waits_the_longest() {
-        todo!()
+        let storage = Storage::new();
+
+        let storage_first = storage.clone();
+
+        let client_one =
+            std::thread::spawn(move || storage_first.blpop(vec!["list".to_string()], 10));
+
+        std::thread::sleep(Duration::from_millis(100));
+
+        let storage_two = storage.clone();
+        let _client_two =
+            std::thread::spawn(move || storage_two.blpop(vec!["list".to_string()], 10));
+
+        std::thread::sleep(Duration::from_millis(100));
+
+        storage
+            .rpush("list".to_string(), vec![b"a".to_vec()])
+            .unwrap();
+
+        let result_one = client_one.join().unwrap();
+        assert_eq!(result_one, Ok(Some(("list".to_string(), b"a".to_vec()))));
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(storage.lrange("list", 0, -1), Ok(vec![]));
     }
 
     #[test]
@@ -843,7 +908,6 @@ mod tests {
     }
 
     #[test]
-    // #[ignore]
     fn test_blpop_command_doesnt_work_on_maps() {
         let storage = Storage::new();
         storage.set("key".to_string(), b"value".to_vec());
