@@ -16,6 +16,7 @@ pub fn handle_command(value: &RespValue, storage: &Storage) -> String {
                 "LRANGE" => handle_lrange(elements, storage),
                 "LLEN" => handle_llen(elements, storage),
                 "LPOP" => handle_lpop(elements, storage),
+                "BLPOP" => handle_blpop(elements, storage),
                 _ => format!("-ERR unknown command: '{}'\r\n", command),
             }
         }
@@ -215,6 +216,36 @@ fn handle_lpop(elements: &[RespValue], storage: &Storage) -> String {
             }
         }
         _ => return "-ERR wrong number of arguments for command\r\n".to_string(),
+    }
+}
+
+fn handle_blpop(elements: &[RespValue], storage: &Storage) -> String {
+    if elements.len() < 3 {
+        return "-ERR wrong number of arguments for command\r\n".to_string();
+    }
+    let keys_args = &elements[..elements.len() - 1];
+    let timeout_arg = &elements[elements.len() - 1];
+
+    let keys: Vec<String> = keys_args.iter().map(|arg| extract_key(arg)).collect();
+    let timeout = extract_integer_from_resp_value(timeout_arg);
+
+    let timeout: u64 = match timeout {
+        Some(t) => t as u64,
+        None => return "-ERR timeout must be a number\r\n".to_string(),
+    };
+
+    match storage.blpop(keys, timeout) {
+        Ok(Some((key, value))) => {
+            format!(
+                "*2\r\n${}\r\n{}\r\n${}\r\n{}\r\n",
+                key.len(),
+                key,
+                value.len(),
+                String::from_utf8_lossy(&value)
+            )
+        }
+        Ok(None) => "$-1\r\n".to_string(),
+        Err(e) => format!("-{}\r\n", e),
     }
 }
 
@@ -946,6 +977,97 @@ mod tests {
         assert_eq!(
             handle_command(&cmd_lpop, &storage),
             "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
+        )
+    }
+
+    #[test]
+    fn test_blpop_command_returns_element_immediately() {
+        let storage = Storage::new();
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"a".to_vec())),
+            RespValue::BulkString(Some(b"b".to_vec())),
+        ]));
+
+        handle_command(&cmd_rpush, &storage);
+
+        let cmd_blpop = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"BLPOP".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"0".to_vec())),
+        ]));
+
+        assert_eq!(
+            handle_command(&cmd_blpop, &storage),
+            "*2\r\n$4\r\nlist\r\n$1\r\na\r\n"
+        )
+    }
+
+    #[test]
+    fn test_blpop_command_returns_element_after_push() {
+        let storage = Storage::new();
+
+        let cmd_blpop = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"BLPOP".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"5".to_vec())),
+        ]));
+
+        let storage_clone = storage.clone();
+        let blpop_thread = std::thread::spawn(move || handle_command(&cmd_blpop, &storage_clone));
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"hello".to_vec())),
+        ]));
+
+        let rpush_result = handle_command(&cmd_rpush, &storage);
+        assert_eq!(rpush_result, ":1\r\n");
+
+        let blpop_result = blpop_thread.join().unwrap();
+        assert_eq!(blpop_result, "*2\r\n$4\r\nlist\r\n$5\r\nhello\r\n");
+
+        let cmd_lrange = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LRANGE".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::Integer(0),
+            RespValue::Integer(-1),
+        ]));
+
+        let lrange_result = handle_command(&cmd_lrange, &storage);
+        assert_eq!(lrange_result, "*0\r\n");
+    }
+
+    #[test]
+    fn test_blpop_command_returns_null_string() {
+        let storage = Storage::new();
+
+        let cmd_blpop = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"BLPOP".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"1".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_blpop, &storage), "$-1\r\n")
+    }
+
+    #[test]
+    fn test_blpop_command_returns_error_on_wrong_number_of_arguments() {
+        let storage = Storage::new();
+
+        let cmd_blpop = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"BLPOP".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+        ]));
+
+        assert_eq!(
+            handle_command(&cmd_blpop, &storage),
+            "-ERR wrong number of arguments for command\r\n"
         )
     }
 }

@@ -340,14 +340,23 @@ impl Storage {
         };
 
         self.waiters.lock().unwrap().push_back(waiter);
-        let timeout = Duration::from_secs(timeout_secs);
-        match rx.recv_timeout(timeout) {
-            Ok((key, value)) => Ok(Some((key, value))),
-            Err(_) => {
-                self.waiters.lock().unwrap().retain(|w| w.keys != keys);
-                Ok(None)
+
+        let result = if timeout_secs == 0 {
+            match rx.recv() {
+                Ok((key, value)) => Some((key, value)),
+                Err(_) => unreachable!("Channel shouldn't be closed"),
             }
-        }
+        } else {
+            let timeout = Duration::from_secs(timeout_secs);
+            match rx.recv_timeout(timeout) {
+                Ok((key, value)) => Some((key, value)),
+                Err(_) => {
+                    self.waiters.lock().unwrap().retain(|w| w.keys != keys);
+                    None
+                }
+            }
+        };
+        Ok(result)
     }
 
     pub fn exists(&self, key: &str) -> bool {
@@ -868,8 +877,7 @@ mod tests {
     }
 
     #[test]
-    // #[ignore]
-    fn test_blpop_comand_with_and_two_clients_should_return_for_the_one_who_waits_the_longest() {
+    fn test_blpop_comand_fifo_ordering_first_waiter_gets_value() {
         let storage = Storage::new();
 
         let storage_first = storage.clone();
@@ -896,15 +904,24 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    fn test_blpop_command_returns_none_if_no_value_inserted_and_time_is_expired() {
-        todo!()
-    }
+    fn test_blpop_comand_with_timeout_zero_works_infinitely() {
+        let storage = Storage::new();
 
-    #[test]
-    #[ignore]
-    fn test_inifinte_block_with_timeout_set_to_zero() {
-        todo!()
+        let storage_clone = storage.clone();
+
+        let handle = std::thread::spawn(move || {
+            let result = storage_clone.blpop(vec!["infinite".to_string()], 0);
+            result
+        });
+
+        std::thread::sleep(Duration::from_millis(100));
+
+        storage
+            .rpush("infinite".to_string(), vec![b"a".to_vec()])
+            .unwrap();
+
+        let result = handle.join().unwrap();
+        assert_eq!(result, Ok(Some(("infinite".to_string(), b"a".to_vec()))));
     }
 
     #[test]
