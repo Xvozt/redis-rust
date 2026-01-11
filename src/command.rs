@@ -17,10 +17,24 @@ pub fn handle_command(value: &RespValue, storage: &Storage) -> String {
                 "LLEN" => handle_llen(elements, storage),
                 "LPOP" => handle_lpop(elements, storage),
                 "BLPOP" => handle_blpop(elements, storage),
+                "TYPE" => handle_type(elements, storage),
                 _ => format!("-ERR unknown command: '{}'\r\n", command),
             }
         }
         _ => "-ERR Invalid command format \r\n".to_string(),
+    }
+}
+
+fn handle_type(elements: &[RespValue], storage: &Storage) -> String {
+    if elements.len() != 2 {
+        return "-ERR wrong number of arguments for 'GET' command\r\n".to_string();
+    }
+
+    let key = extract_key(&elements[1]);
+
+    match storage.get_type(&key) {
+        Some(t) => format!("+{}\r\n", t.to_string()),
+        None => "+none\r\n".to_string(),
     }
 }
 
@@ -1115,5 +1129,57 @@ mod tests {
             handle_command(&cmd_blpop, &storage),
             "-ERR wrong number of arguments for command\r\n"
         )
+    }
+
+    #[test]
+    fn test_type_command_returns_type_for_string() {
+        let storage = Storage::new();
+
+        let cmd_set = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"SET".to_vec())),
+            RespValue::BulkString(Some(b"key".to_vec())),
+            RespValue::BulkString(Some(b"foo".to_vec())),
+        ]));
+
+        let cmd_type = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"TYPE".to_vec())),
+            RespValue::BulkString(Some(b"key".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_set, &storage), "+OK\r\n");
+
+        assert_eq!(handle_command(&cmd_type, &storage), "+string\r\n")
+    }
+
+    #[test]
+    fn test_type_command_returns_type_for_list() {
+        let storage = Storage::new();
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"\"element_one\"".to_vec())),
+            RespValue::BulkString(Some(b"\"element_two\"".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_rpush, &storage), ":2\r\n");
+
+        let cmd_type = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"TYPE".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_type, &storage), "+list\r\n")
+    }
+
+    #[test]
+    fn test_type_command_returns_none_for_non_existing_key() {
+        let storage = Storage::new();
+
+        let cmd_type = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"TYPE".to_vec())),
+            RespValue::BulkString(Some(b"key".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_type, &storage), "+none\r\n");
     }
 }

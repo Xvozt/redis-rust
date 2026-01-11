@@ -383,6 +383,10 @@ impl Storage {
             }
         }
     }
+
+    pub fn get_type(&self, key: &str) -> Option<String> {
+        todo!()
+    }
 }
 
 #[cfg(test)]
@@ -934,5 +938,24 @@ mod tests {
             err,
             Err("WRONGTYPE Operation against a key holding the wrong kind of value".to_string())
         )
+    }
+
+    #[test]
+    fn test_get_type_command_returns_some() {
+        let storage = Storage::new();
+
+        let result = storage.rpush("my_list".to_string(), vec![b"a".to_vec(), b"b".to_vec()]);
+        assert_eq!(result, Ok(2));
+
+        let t = storage.get_type("my_list");
+        assert_eq!(t, Some("list".to_string()));
+    }
+
+    #[test]
+    fn test_get_type_command_returns_none() {
+        let storage = Storage::new();
+
+        let t = storage.get_type("my_list");
+        assert_eq!(t, None);
     }
 }
