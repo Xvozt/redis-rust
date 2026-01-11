@@ -311,7 +311,7 @@ impl Storage {
     pub fn blpop(
         &self,
         keys: Vec<String>,
-        timeout_secs: u64,
+        timeout_secs: f64,
     ) -> Result<Option<(String, Vec<u8>)>, String> {
         for key in &keys {
             let store = self.inner.lock().unwrap();
@@ -341,13 +341,13 @@ impl Storage {
 
         self.waiters.lock().unwrap().push_back(waiter);
 
-        let result = if timeout_secs == 0 {
+        let result = if timeout_secs == 0.0 {
             match rx.recv() {
                 Ok((key, value)) => Some((key, value)),
                 Err(_) => unreachable!("Channel shouldn't be closed"),
             }
         } else {
-            let timeout = Duration::from_secs(timeout_secs);
+            let timeout = Duration::from_secs_f64(timeout_secs);
             match rx.recv_timeout(timeout) {
                 Ok((key, value)) => Some((key, value)),
                 Err(_) => {
@@ -850,7 +850,7 @@ mod tests {
 
         let popped = storage.blpop(
             vec!["list".to_string(), "list2".to_string(), "list3".to_string()],
-            10,
+            10.0,
         );
         assert_eq!(Ok(Some(("list".to_string(), b"a".to_vec()))), popped);
     }
@@ -862,11 +862,11 @@ mod tests {
         let storage_clone = storage.clone();
 
         let handle = std::thread::spawn(move || {
-            let result = storage_clone.blpop(vec!["list".to_string()], 5);
+            let result = storage_clone.blpop(vec!["list".to_string()], 0.1);
             result
         });
 
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(50));
 
         storage
             .rpush("list".to_string(), vec![b"a".to_vec()])
@@ -883,13 +883,13 @@ mod tests {
         let storage_first = storage.clone();
 
         let client_one =
-            std::thread::spawn(move || storage_first.blpop(vec!["list".to_string()], 10));
+            std::thread::spawn(move || storage_first.blpop(vec!["list".to_string()], 10.0));
 
         std::thread::sleep(Duration::from_millis(100));
 
         let storage_two = storage.clone();
         let _client_two =
-            std::thread::spawn(move || storage_two.blpop(vec!["list".to_string()], 10));
+            std::thread::spawn(move || storage_two.blpop(vec!["list".to_string()], 10.0));
 
         std::thread::sleep(Duration::from_millis(100));
 
@@ -910,7 +910,7 @@ mod tests {
         let storage_clone = storage.clone();
 
         let handle = std::thread::spawn(move || {
-            let result = storage_clone.blpop(vec!["infinite".to_string()], 0);
+            let result = storage_clone.blpop(vec!["infinite".to_string()], 0.0);
             result
         });
 
@@ -928,7 +928,7 @@ mod tests {
     fn test_blpop_command_doesnt_work_on_maps() {
         let storage = Storage::new();
         storage.set("key".to_string(), b"value".to_vec());
-        let err = storage.blpop(vec![String::from("key")], 10);
+        let err = storage.blpop(vec![String::from("key")], 10.0);
 
         assert_eq!(
             err,

@@ -227,10 +227,10 @@ fn handle_blpop(elements: &[RespValue], storage: &Storage) -> String {
     let timeout_arg = &elements[elements.len() - 1];
 
     let keys: Vec<String> = keys_args.iter().map(|arg| extract_key(arg)).collect();
-    let timeout = extract_integer_from_resp_value(timeout_arg);
+    let timeout = extract_timeout(timeout_arg);
 
-    let timeout: u64 = match timeout {
-        Some(t) => t as u64,
+    let timeout: f64 = match timeout {
+        Some(t) => t as f64,
         None => return "-ERR timeout must be a number\r\n".to_string(),
     };
 
@@ -244,7 +244,7 @@ fn handle_blpop(elements: &[RespValue], storage: &Storage) -> String {
                 String::from_utf8_lossy(&value)
             )
         }
-        Ok(None) => "$-1\r\n".to_string(),
+        Ok(None) => "*-1\r\n".to_string(),
         Err(e) => format!("-{}\r\n", e),
     }
 }
@@ -270,6 +270,14 @@ fn extract_integer_from_resp_value(value: &RespValue) -> Option<i64> {
         RespValue::Integer(i) => Some(*i),
         RespValue::BulkString(Some(bytes)) => String::from_utf8_lossy(bytes).parse::<i64>().ok(),
         RespValue::SimpleString(s) => s.parse::<i64>().ok(),
+        _ => None,
+    }
+}
+
+fn extract_timeout(value: &RespValue) -> Option<f64> {
+    match value {
+        RespValue::BulkString(Some(bytes)) => String::from_utf8_lossy(bytes).parse::<f64>().ok(),
+        RespValue::SimpleString(s) => s.parse::<f64>().ok(),
         _ => None,
     }
 }
@@ -1044,7 +1052,45 @@ mod tests {
     }
 
     #[test]
-    fn test_blpop_command_returns_null_string() {
+    fn test_blpop_command_returns_null_array_if_timeout_expires_early_that_element_pushed() {
+        let storage = Storage::new();
+
+        let cmd_blpop = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"BLPOP".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"0.01".to_vec())),
+        ]));
+
+        let storage_clone = storage.clone();
+        let blpop_thread = std::thread::spawn(move || handle_command(&cmd_blpop, &storage_clone));
+
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        let blpop_result = blpop_thread.join().unwrap();
+        assert_eq!(blpop_result, "*-1\r\n");
+
+        let cmd_rpush = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"RPUSH".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::BulkString(Some(b"hello".to_vec())),
+        ]));
+
+        let rpush_result = handle_command(&cmd_rpush, &storage);
+        assert_eq!(rpush_result, ":1\r\n");
+
+        let cmd_lrange = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"LRANGE".to_vec())),
+            RespValue::BulkString(Some(b"list".to_vec())),
+            RespValue::Integer(0),
+            RespValue::Integer(-1),
+        ]));
+
+        let lrange_result = handle_command(&cmd_lrange, &storage);
+        assert_eq!(lrange_result, "*1\r\n$5\r\nhello\r\n");
+    }
+
+    #[test]
+    fn test_blpop_command_returns_null_array_for_non_existing_list() {
         let storage = Storage::new();
 
         let cmd_blpop = RespValue::Array(Some(vec![
@@ -1053,7 +1099,7 @@ mod tests {
             RespValue::BulkString(Some(b"1".to_vec())),
         ]));
 
-        assert_eq!(handle_command(&cmd_blpop, &storage), "$-1\r\n")
+        assert_eq!(handle_command(&cmd_blpop, &storage), "*-1\r\n")
     }
 
     #[test]
