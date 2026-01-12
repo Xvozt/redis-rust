@@ -7,6 +7,13 @@ use std::time::{Duration, SystemTime};
 enum StoredData {
     String(Vec<u8>),
     List(Vec<Vec<u8>>),
+    Stream(Vec<Entry>),
+}
+
+#[derive(Debug, Clone)]
+struct Entry {
+    id: String,
+    values: HashMap<String, Vec<u8>>,
 }
 
 #[derive(Clone, Debug)]
@@ -114,7 +121,7 @@ impl Storage {
                         self.notify_waiters(&key);
                         return Ok(len);
                     }
-                    StoredData::String(_) => {
+                    _ => {
                         return Err(
                             "WRONGTYPE Operation against a key holding the wrong kind of value"
                                 .to_string(),
@@ -149,7 +156,7 @@ impl Storage {
                         self.notify_waiters(&key);
                         return Ok(len);
                     }
-                    StoredData::String(_) => {
+                    _ => {
                         return Err(
                             "WRONGTYPE Operation against a key holding the wrong kind of value"
                                 .to_string(),
@@ -177,12 +184,6 @@ impl Storage {
                 }
 
                 match &stored_value.data {
-                    StoredData::String(_) => {
-                        return Err(
-                            "WRONGTYPE Operation against a key holding the wrong kind of value"
-                                .to_string(),
-                        )
-                    }
                     StoredData::List(list) => {
                         let len = list.len() as isize;
 
@@ -206,6 +207,12 @@ impl Storage {
 
                         Ok(list[start_idx..=end_idx].to_vec())
                     }
+                    _ => {
+                        return Err(
+                            "WRONGTYPE Operation against a key holding the wrong kind of value"
+                                .to_string(),
+                        )
+                    }
                 }
             }
         }
@@ -223,13 +230,13 @@ impl Storage {
                 }
 
                 match &stored_value.data {
-                    StoredData::String(_) => {
+                    StoredData::List(list) => return Ok(list.len()),
+                    _ => {
                         return Err(
                             "WRONGTYPE Operation against a key holding the wrong kind of value"
                                 .to_string(),
                         )
                     }
-                    StoredData::List(list) => return Ok(list.len()),
                 }
             }
         }
@@ -246,12 +253,6 @@ impl Storage {
                 }
 
                 match &mut stored_value.data {
-                    StoredData::String(_) => {
-                        return Err(
-                            "WRONGTYPE Operation against a key holding the wrong kind of value"
-                                .to_string(),
-                        )
-                    }
                     StoredData::List(list) => {
                         if list.is_empty() {
                             store.remove(key);
@@ -262,6 +263,12 @@ impl Storage {
                             store.remove(key);
                         }
                         return Ok(Some(element));
+                    }
+                    _ => {
+                        return Err(
+                            "WRONGTYPE Operation against a key holding the wrong kind of value"
+                                .to_string(),
+                        )
                     }
                 }
             }
@@ -283,12 +290,6 @@ impl Storage {
                 }
 
                 match &mut stored_value.data {
-                    StoredData::String(_) => {
-                        return Err(
-                            "WRONGTYPE Operation against a key holding the wrong kind of value"
-                                .to_string(),
-                        )
-                    }
                     StoredData::List(list) => {
                         if list.is_empty() {
                             store.remove(key);
@@ -302,6 +303,12 @@ impl Storage {
                             store.remove(key);
                         }
                         return Ok(Some(elements));
+                    }
+                    _ => {
+                        return Err(
+                            "WRONGTYPE Operation against a key holding the wrong kind of value"
+                                .to_string(),
+                        )
                     }
                 }
             }
@@ -396,6 +403,7 @@ impl Storage {
                     match stored_value.data {
                         StoredData::List(_) => "list".to_string(),
                         StoredData::String(_) => "string".to_string(),
+                        StoredData::Stream(_) => "stream".to_string(),
                     }
                 }
             }
