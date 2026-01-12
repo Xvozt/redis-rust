@@ -384,8 +384,22 @@ impl Storage {
         }
     }
 
-    pub fn get_type(&self, key: &str) -> Option<String> {
-        todo!()
+    pub fn get_type(&self, key: &str) -> String {
+        let store = self.inner.lock().unwrap();
+
+        match store.get(key) {
+            None => "none".to_string(),
+            Some(stored_value) => {
+                if stored_value.is_expired() {
+                    "none".to_string()
+                } else {
+                    match stored_value.data {
+                        StoredData::List(_) => "list".to_string(),
+                        StoredData::String(_) => "string".to_string(),
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -948,7 +962,7 @@ mod tests {
         assert_eq!(result, Ok(2));
 
         let t = storage.get_type("my_list");
-        assert_eq!(t, Some("list".to_string()));
+        assert_eq!(t, "list".to_string());
     }
 
     #[test]
@@ -956,6 +970,6 @@ mod tests {
         let storage = Storage::new();
 
         let t = storage.get_type("my_list");
-        assert_eq!(t, None);
+        assert_eq!(t, "none".to_string());
     }
 }

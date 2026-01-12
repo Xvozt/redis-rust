@@ -31,11 +31,8 @@ fn handle_type(elements: &[RespValue], storage: &Storage) -> String {
     }
 
     let key = extract_key(&elements[1]);
-
-    match storage.get_type(&key) {
-        Some(t) => format!("+{}\r\n", t.to_string()),
-        None => "+none\r\n".to_string(),
-    }
+    let key_type = storage.get_type(&key);
+    format!("+{}\r\n", key_type.to_string())
 }
 
 fn handle_ping(_elements: &[RespValue]) -> String {
