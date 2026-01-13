@@ -1,7 +1,8 @@
 use std::collections::{HashMap, VecDeque};
+use std::str::FromStr;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Debug)]
 enum StoredData {
@@ -12,8 +13,73 @@ enum StoredData {
 
 #[derive(Debug, Clone)]
 struct Entry {
-    id: String,
+    id: EntryId,
     values: HashMap<String, Vec<u8>>,
+}
+
+impl Entry {
+    fn new(values: HashMap<String, Vec<u8>>) -> Self {
+        let id = EntryId::new();
+        Self { id, values }
+    }
+
+    fn with_id(id_str: &str, values: HashMap<String, Vec<u8>>) -> Result<Self, String> {
+        let id = id_str.parse::<EntryId>()?;
+        Ok(Self { id, values })
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EntryId {
+    ms: u64,
+    seq: u64,
+}
+
+impl EntryId {
+    fn new() -> Self {
+        let ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Cannot create timestamp for EntryID")
+            .as_millis() as u64;
+
+        Self { ms, seq: 0 }
+    }
+}
+
+impl FromStr for EntryId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut parts = s.split("-");
+
+        let ms = parts
+            .next()
+            .ok_or("Missing first part: {ms}-{sequence}")?
+            .parse::<u64>()
+            .map_err(|_| "Invalid first id part")?;
+
+        let seq = parts
+            .next()
+            .ok_or("Missing second part: {ms}-{sequence}")?
+            .parse::<u64>()
+            .map_err(|_| "Invalid sequence second id part")?;
+
+        if parts.next().is_some() {
+            return Err("Too many parts in ID".to_string());
+        }
+
+        Ok(EntryId { ms, seq })
+    }
+}
+
+impl Ord for EntryId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.ms.cmp(&other.ms).then(self.seq.cmp(&other.seq))
+    }
+}
+impl PartialOrd for EntryId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -408,6 +474,15 @@ impl Storage {
                 }
             }
         }
+    }
+
+    pub fn xadd(
+        &self,
+        key: String,
+        id: &str,
+        values: HashMap<String, Vec<u8>>,
+    ) -> Result<String, String> {
+        todo!()
     }
 }
 
@@ -979,5 +1054,32 @@ mod tests {
 
         let t = storage.get_type("my_list");
         assert_eq!(t, "none".to_string());
+    }
+
+    #[test]
+    #[ignore = "xadd command not implemented yet"]
+    fn test_xadd_create_stream_with_passed_id() {
+        let storage = Storage::new();
+        let mut values = HashMap::new();
+        values.insert("key".to_string(), b"value".to_vec());
+
+        let result = storage.xadd("mystream".to_string(), "0-1", values);
+
+        assert_eq!(result, Ok("0-1".to_string()));
+        assert!(storage.exists("mystream"));
+        assert_eq!(storage.get_type("mystream"), "stream");
+    }
+
+    #[test]
+    #[ignore = "xadd command not implemented yet"]
+    fn test_xadd_create_stream_with_generated_id() {
+        let storage = Storage::new();
+        let mut values = HashMap::new();
+        values.insert("key".to_string(), b"value".to_vec());
+
+        let result = storage.xadd("mystream".to_string(), "*", values);
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains('-'));
     }
 }
