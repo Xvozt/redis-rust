@@ -1100,7 +1100,6 @@ mod tests {
     }
 
     #[test]
-    // #[ignore = "xadd command not implemented yet"]
     fn test_xadd_create_stream_with_passed_id() {
         let storage = Storage::new();
         let mut values = HashMap::new();
@@ -1114,7 +1113,6 @@ mod tests {
     }
 
     #[test]
-    // #[ignore = "xadd command not implemented yet"]
     fn test_xadd_create_stream_with_generated_id() {
         let storage = Storage::new();
         let mut values = HashMap::new();
