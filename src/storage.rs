@@ -12,22 +12,12 @@ enum StoredData {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct Entry {
     id: EntryId,
     values: HashMap<String, Vec<u8>>,
 }
 
-impl Entry {
-    fn new(values: HashMap<String, Vec<u8>>) -> Self {
-        let id = EntryId::new();
-        Self { id, values }
-    }
-
-    fn with_id(id_str: &str, values: HashMap<String, Vec<u8>>) -> Result<Self, String> {
-        let id = id_str.parse::<EntryId>()?;
-        Ok(Self { id, values })
-    }
-}
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct EntryId {
     ms: u64,
@@ -482,7 +472,60 @@ impl Storage {
         id: &str,
         values: HashMap<String, Vec<u8>>,
     ) -> Result<String, String> {
-        todo!()
+        let mut store = self.inner.lock().unwrap();
+
+        let stored_value = store
+            .entry(key.clone())
+            .or_insert_with(|| StoredValue::new(StoredData::Stream(Vec::new())));
+
+        if stored_value.is_expired() {
+            *stored_value = StoredValue::new(StoredData::Stream(Vec::new()));
+        }
+
+        match &mut stored_value.data {
+            StoredData::Stream(list) => {
+                let input_entry_id = if id == "*" {
+                    let mut new_id = EntryId::new();
+                    if let Some(last_entry) = list.last() {
+                        match new_id.cmp(&last_entry.id) {
+                            std::cmp::Ordering::Less => {
+                                new_id.ms = last_entry.id.ms;
+                                new_id.seq = last_entry.id.seq + 1;
+                            }
+                            std::cmp::Ordering::Greater => {
+                                new_id.seq = 0;
+                            }
+                            std::cmp::Ordering::Equal => {
+                                new_id.seq = last_entry.id.seq + 1;
+                            }
+                        }
+                    } else {
+                        if new_id.ms == 0 {
+                            new_id.seq = 1;
+                        }
+                    }
+                    new_id
+                } else {
+                    EntryId::from_str(id)?
+                };
+
+                if let Some(last_entry) = list.last() {
+                    if input_entry_id <= last_entry.id {
+                        return Err("The ID specified in XADD is equal or smaller than the target stream top item".to_string());
+                    }
+                }
+
+                let entry = Entry {
+                    id: input_entry_id.clone(),
+                    values,
+                };
+                list.push(entry);
+                Ok(format!("{}-{}", input_entry_id.ms, input_entry_id.seq))
+            }
+            _ => {
+                Err("WRONGTYPE Operation against a key holding the wrong kind of value".to_string())
+            }
+        }
     }
 }
 
@@ -1057,7 +1100,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "xadd command not implemented yet"]
+    // #[ignore = "xadd command not implemented yet"]
     fn test_xadd_create_stream_with_passed_id() {
         let storage = Storage::new();
         let mut values = HashMap::new();
@@ -1071,7 +1114,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "xadd command not implemented yet"]
+    // #[ignore = "xadd command not implemented yet"]
     fn test_xadd_create_stream_with_generated_id() {
         let storage = Storage::new();
         let mut values = HashMap::new();
