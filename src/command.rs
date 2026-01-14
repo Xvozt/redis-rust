@@ -18,11 +18,16 @@ pub fn handle_command(value: &RespValue, storage: &Storage) -> String {
                 "LPOP" => handle_lpop(elements, storage),
                 "BLPOP" => handle_blpop(elements, storage),
                 "TYPE" => handle_type(elements, storage),
+                "XADD" => handle_xadd(elements, storage),
                 _ => format!("-ERR unknown command: '{}'\r\n", command),
             }
         }
         _ => "-ERR Invalid command format \r\n".to_string(),
     }
+}
+
+fn handle_xadd(elements: &[RespValue], storage: &Storage) -> String {
+    todo!()
 }
 
 fn handle_type(elements: &[RespValue], storage: &Storage) -> String {
@@ -1178,5 +1183,39 @@ mod tests {
         ]));
 
         assert_eq!(handle_command(&cmd_type, &storage), "+none\r\n");
+    }
+
+    #[test]
+    fn test_xadd_command_works_with_specified_id() {
+        todo!()
+    }
+
+    #[test]
+    fn test_xadd_command_works_with_generated_id() {
+        todo!()
+    }
+
+    #[test]
+    fn test_xadd_command_works_with_more_than_one_pair_of_values() {
+        todo!()
+    }
+
+    #[test]
+    fn test_xadd_command_returns_error_for_wrong_number_of_arguments() {
+        todo!()
+    }
+
+    #[test]
+    fn test_xadd_command_returns_error_for_invalid_provided_id() {
+        todo!()
+    }
+    #[test]
+    fn test_xadd_command_returns_error_if_provided_id_is_smaller_than_existing() {
+        todo!()
+    }
+
+    #[test]
+    fn test_xadd_command_doesnt_work_on_maps() {
+        todo!()
     }
 }
