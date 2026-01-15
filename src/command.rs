@@ -313,7 +313,10 @@ fn format_array(items: Vec<Vec<u8>>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{thread::sleep, time::Duration};
+    use std::{
+        thread::sleep,
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn test_ping_command_returns_pong() {
@@ -1187,12 +1190,57 @@ mod tests {
 
     #[test]
     fn test_xadd_command_works_with_specified_id() {
-        todo!()
+        let storage = Storage::new();
+
+        let cmd_xadd = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XADD".to_vec())),
+            RespValue::BulkString(Some(b"key".to_vec())),
+            RespValue::BulkString(Some(b"0-1".to_vec())),
+            RespValue::BulkString(Some(b"field".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_xadd, &storage), "$3\r\n0-1\r\n")
     }
 
     #[test]
     fn test_xadd_command_works_with_generated_id() {
-        todo!()
+        let storage = Storage::new();
+
+        let cmd_xadd = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XADD".to_vec())),
+            RespValue::BulkString(Some(b"key".to_vec())),
+            RespValue::BulkString(Some(b"*".to_vec())),
+            RespValue::BulkString(Some(b"field".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+        ]));
+
+        let before = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+
+        let result = handle_command(&cmd_xadd, &storage);
+
+        let after = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+
+        let mut lines = result.split("\r\n");
+        let len_line = lines.next().unwrap();
+        let id = lines.next().unwrap();
+        assert_eq!(lines.next(), Some(""));
+
+        assert!(len_line.starts_with('$'));
+        let len = len_line[1..].parse::<usize>().unwrap();
+        assert_eq!(len, id.len());
+
+        let mut parts = id.split('-');
+        let ms = parts.next().unwrap().parse::<u128>().unwrap();
+        let _seq = parts.next().unwrap().parse::<u64>().unwrap();
+        assert!(parts.next().is_none());
+
+        assert!(ms >= before && ms <= after);
     }
 
     #[test]
@@ -1215,7 +1263,32 @@ mod tests {
     }
 
     #[test]
-    fn test_xadd_command_doesnt_work_on_maps() {
+    fn test_type_command_works_on_stream() {
         todo!()
+    }
+
+    #[test]
+    fn test_xadd_command_doesnt_work_on_strings() {
+        let storage = Storage::new();
+
+        let cmd_set = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"SET".to_vec())),
+            RespValue::BulkString(Some(b"key".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_set, &storage), "+OK\r\n");
+
+        let cmd_xadd = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XADD".to_vec())),
+            RespValue::BulkString(Some(b"key".to_vec())),
+            RespValue::BulkString(Some(b"*".to_vec())),
+            RespValue::BulkString(Some(b"a".to_vec())),
+            RespValue::BulkString(Some(b"b".to_vec())),
+        ]));
+        assert_eq!(
+            handle_command(&cmd_xadd, &storage),
+            "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
+        )
     }
 }
