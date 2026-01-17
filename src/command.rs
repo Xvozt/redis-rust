@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::RespValue;
 use crate::Storage;
 
@@ -27,7 +29,42 @@ pub fn handle_command(value: &RespValue, storage: &Storage) -> String {
 }
 
 fn handle_xadd(elements: &[RespValue], storage: &Storage) -> String {
-    todo!()
+    //xadd mystream_test 1-2 field value
+    //xadd mystream_test * field value
+    if elements.len() < 5 || elements.len() - 3 % 2 == 0 {
+        return "-ERR wrong number of arguments for command\r\n".to_string();
+    }
+
+    let stream_name = extract_key(&elements[1]);
+
+    let id = match &elements[2] {
+        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
+        RespValue::SimpleString(s) => s.clone(),
+        _ => return "-ERR Invalid stream ID specified as stream command argument\r\n".to_string(),
+    };
+
+    let mut values: HashMap<String, Vec<u8>> = HashMap::with_capacity(elements[3..].len());
+
+    for pair in elements[3..].windows(2).step_by(2) {
+        let key = match &pair[0] {
+            RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
+            RespValue::SimpleString(s) => s.clone(),
+            _ => return "-ERR Invalid key type\r\n".to_string(),
+        };
+
+        let value = match &pair[1] {
+            RespValue::BulkString(Some(s)) => s.to_owned(),
+            RespValue::SimpleString(s) => s.as_bytes().to_vec(),
+            _ => return "-ERR Invalid key type\r\n".to_string(),
+        };
+
+        values.insert(key, value);
+    }
+
+    match storage.xadd(stream_name, &id, values) {
+        Ok(s) => format!("${}\r\n{}\r\n", s.len(), s),
+        Err(e) => format!("-{}\r\n", e),
+    }
 }
 
 fn handle_type(elements: &[RespValue], storage: &Storage) -> String {
@@ -1194,7 +1231,7 @@ mod tests {
 
         let cmd_xadd = RespValue::Array(Some(vec![
             RespValue::BulkString(Some(b"XADD".to_vec())),
-            RespValue::BulkString(Some(b"key".to_vec())),
+            RespValue::BulkString(Some(b"mystream".to_vec())),
             RespValue::BulkString(Some(b"0-1".to_vec())),
             RespValue::BulkString(Some(b"field".to_vec())),
             RespValue::BulkString(Some(b"value".to_vec())),
@@ -1208,7 +1245,7 @@ mod tests {
 
         let cmd_xadd = RespValue::Array(Some(vec![
             RespValue::BulkString(Some(b"XADD".to_vec())),
-            RespValue::BulkString(Some(b"key".to_vec())),
+            RespValue::BulkString(Some(b"mystream".to_vec())),
             RespValue::BulkString(Some(b"*".to_vec())),
             RespValue::BulkString(Some(b"field".to_vec())),
             RespValue::BulkString(Some(b"value".to_vec())),
@@ -1245,26 +1282,125 @@ mod tests {
 
     #[test]
     fn test_xadd_command_works_with_more_than_one_pair_of_values() {
-        todo!()
+        let storage = Storage::new();
+
+        let cmd_xadd = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XADD".to_vec())),
+            RespValue::BulkString(Some(b"mystream".to_vec())),
+            RespValue::BulkString(Some(b"0-1".to_vec())),
+            RespValue::BulkString(Some(b"field".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+            RespValue::BulkString(Some(b"field2".to_vec())),
+            RespValue::BulkString(Some(b"value2".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_xadd, &storage), "$3\r\n0-1\r\n")
     }
 
     #[test]
     fn test_xadd_command_returns_error_for_wrong_number_of_arguments() {
-        todo!()
+        let storage = Storage::new();
+
+        let cmd_xadd = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XADD".to_vec())),
+            RespValue::BulkString(Some(b"mystream".to_vec())),
+            RespValue::BulkString(Some(b"0-1".to_vec())),
+            RespValue::BulkString(Some(b"field".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+            RespValue::BulkString(Some(b"field2".to_vec())),
+        ]));
+        assert_eq!(
+            handle_command(&cmd_xadd, &storage),
+            "-ERR wrong number of arguments for command\r\n"
+        )
     }
 
     #[test]
     fn test_xadd_command_returns_error_for_invalid_provided_id() {
-        todo!()
+        let storage = Storage::new();
+
+        let cmd_xadd = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XADD".to_vec())),
+            RespValue::BulkString(Some(b"mystream".to_vec())),
+            RespValue::BulkString(Some(b"-1-1".to_vec())),
+            RespValue::BulkString(Some(b"field".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+        ]));
+        assert_eq!(
+            handle_command(&cmd_xadd, &storage),
+            "-ERR Invalid stream ID specified as stream command argument\r\n"
+        );
+
+        let cmd_xadd2 = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XADD".to_vec())),
+            RespValue::BulkString(Some(b"mystream".to_vec())),
+            RespValue::BulkString(Some(b"0-0".to_vec())),
+            RespValue::BulkString(Some(b"field".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+        ]));
+        assert_eq!(
+            handle_command(&cmd_xadd2, &storage),
+            "-ERR Invalid stream ID specified as stream command argument\r\n"
+        );
+
+        let cmd_xadd3 = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XADD".to_vec())),
+            RespValue::BulkString(Some(b"mystream".to_vec())),
+            RespValue::BulkString(Some(b"f-f".to_vec())),
+            RespValue::BulkString(Some(b"field".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+        ]));
+        assert_eq!(
+            handle_command(&cmd_xadd3, &storage),
+            "-ERR Invalid stream ID specified as stream command argument\r\n"
+        )
     }
+
     #[test]
     fn test_xadd_command_returns_error_if_provided_id_is_smaller_than_existing() {
-        todo!()
+        let storage = Storage::new();
+
+        let cmd_xadd = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XADD".to_vec())),
+            RespValue::BulkString(Some(b"mystream".to_vec())),
+            RespValue::BulkString(Some(b"1-2".to_vec())),
+            RespValue::BulkString(Some(b"field".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_xadd, &storage), "$3\r\n1-2\r\n");
+
+        let cmd_xadd2 = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XADD".to_vec())),
+            RespValue::BulkString(Some(b"mystream".to_vec())),
+            RespValue::BulkString(Some(b"0-1".to_vec())),
+            RespValue::BulkString(Some(b"field2".to_vec())),
+            RespValue::BulkString(Some(b"value2".to_vec())),
+        ]));
+        assert_eq!(
+            handle_command(&cmd_xadd2, &storage),
+            "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"
+        )
     }
 
     #[test]
     fn test_type_command_works_on_stream() {
-        todo!()
+        let storage = Storage::new();
+
+        let cmd_xadd = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XADD".to_vec())),
+            RespValue::BulkString(Some(b"mystream".to_vec())),
+            RespValue::BulkString(Some(b"0-1".to_vec())),
+            RespValue::BulkString(Some(b"field".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_xadd, &storage), "$3\r\n0-1\r\n");
+
+        let cmd_type = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"TYPE".to_vec())),
+            RespValue::BulkString(Some(b"mystream".to_vec())),
+        ]));
+
+        assert_eq!(handle_command(&cmd_type, &storage), "+stream\r\n")
     }
 
     #[test]

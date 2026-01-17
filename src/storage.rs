@@ -506,12 +506,20 @@ impl Storage {
                     }
                     new_id
                 } else {
-                    EntryId::from_str(id)?
+                    match EntryId::from_str(id) {
+                        Ok(id) => id,
+                        Err(_) => {
+                            return Err(
+                                "ERR Invalid stream ID specified as stream command argument"
+                                    .to_string(),
+                            )
+                        }
+                    }
                 };
 
                 if let Some(last_entry) = list.last() {
                     if input_entry_id <= last_entry.id {
-                        return Err("The ID specified in XADD is equal or smaller than the target stream top item".to_string());
+                        return Err("ERR The ID specified in XADD is equal or smaller than the target stream top item".to_string());
                     }
                 }
 
