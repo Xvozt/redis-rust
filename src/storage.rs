@@ -507,7 +507,15 @@ impl Storage {
                     new_id
                 } else {
                     match EntryId::from_str(id) {
-                        Ok(id) => id,
+                        Ok(id) => {
+                            if id.ms == 0 && id.seq == 0 {
+                                return Err(
+                                    "ERR Invalid stream ID specified as stream command argument"
+                                        .to_string(),
+                                );
+                            }
+                            id
+                        }
                         Err(_) => {
                             return Err(
                                 "ERR Invalid stream ID specified as stream command argument"

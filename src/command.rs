@@ -29,9 +29,7 @@ pub fn handle_command(value: &RespValue, storage: &Storage) -> String {
 }
 
 fn handle_xadd(elements: &[RespValue], storage: &Storage) -> String {
-    //xadd mystream_test 1-2 field value
-    //xadd mystream_test * field value
-    if elements.len() < 5 || elements.len() - 3 % 2 == 0 {
+    if elements.len() < 5 || ((elements.len() - 3) % 2 != 0) {
         return "-ERR wrong number of arguments for command\r\n".to_string();
     }
 
