@@ -1337,7 +1337,7 @@ mod tests {
         ]));
         assert_eq!(
             handle_command(&cmd_xadd2, &storage),
-            "-ERR Invalid stream ID specified as stream command argument\r\n"
+            "-ERR The ID specified in XADD must be greater than 0-0\r\n"
         );
 
         let cmd_xadd3 = RespValue::Array(Some(vec![

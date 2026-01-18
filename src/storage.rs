@@ -510,7 +510,7 @@ impl Storage {
                         Ok(id) => {
                             if id.ms == 0 && id.seq == 0 {
                                 return Err(
-                                    "ERR Invalid stream ID specified as stream command argument"
+                                    "ERR The ID specified in XADD must be greater than 0-0"
                                         .to_string(),
                                 );
                             }
