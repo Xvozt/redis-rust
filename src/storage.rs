@@ -1129,6 +1129,51 @@ mod tests {
     }
 
     #[test]
+    fn test_xadd_create_stream_with_passed_partial_id_with_sequence_wildcard() {
+        let storage = Storage::new();
+        let mut values = HashMap::new();
+        values.insert("key".to_string(), b"value".to_vec());
+
+        let result = storage.xadd("mystream".to_string(), "1-*", values);
+
+        assert_eq!(result, Ok("1-0".to_string()));
+        assert!(storage.exists("mystream"));
+        assert_eq!(storage.get_type("mystream"), "stream");
+    }
+
+    #[test]
+    fn test_xadd_create_stream_with_passed_partial_id_with_sequence_wildcard_and_time_with_zero() {
+        let storage = Storage::new();
+        let mut values = HashMap::new();
+        values.insert("key".to_string(), b"value".to_vec());
+
+        let result = storage.xadd("mystream".to_string(), "0-*", values);
+
+        assert_eq!(result, Ok("0-1".to_string()));
+        assert!(storage.exists("mystream"));
+        assert_eq!(storage.get_type("mystream"), "stream");
+    }
+
+    #[test]
+    fn test_xadd_create_stream_with_passed_partial_id_with_sequence_wildcard_and_several_keys() {
+        let storage = Storage::new();
+        let mut values = HashMap::new();
+        values.insert("key".to_string(), b"value".to_vec());
+
+        let result = storage.xadd("mystream".to_string(), "5-*", values);
+
+        assert_eq!(result, Ok("5-0".to_string()));
+        assert!(storage.exists("mystream"));
+        assert_eq!(storage.get_type("mystream"), "stream");
+
+        let mut values = HashMap::new();
+        values.insert("second_key".to_string(), b"second_value".to_vec());
+        let second_result = storage.xadd("mystream".to_string(), "5-*", values);
+
+        assert_eq!(second_result, Ok("5-1".to_string()));
+    }
+
+    #[test]
     fn test_xadd_create_stream_with_generated_id() {
         let storage = Storage::new();
         let mut values = HashMap::new();
