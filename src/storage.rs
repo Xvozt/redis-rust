@@ -20,7 +20,7 @@ struct Entry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct EntryId {
-    ms: u64,
+    ms: u128,
     seq: u64,
 }
 
@@ -29,9 +29,15 @@ impl EntryId {
         let ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Cannot create timestamp for EntryID")
-            .as_millis() as u64;
+            .as_millis();
 
         Self { ms, seq: 0 }
+    }
+}
+
+impl Default for EntryId {
+    fn default() -> Self {
+        Self { ms: 0, seq: 0 }
     }
 }
 
@@ -44,7 +50,7 @@ impl FromStr for EntryId {
         let ms = parts
             .next()
             .ok_or("Missing first part: {ms}-{sequence}")?
-            .parse::<u64>()
+            .parse::<u128>()
             .map_err(|_| "Invalid first id part")?;
 
         let seq = parts
@@ -484,59 +490,151 @@ impl Storage {
 
         match &mut stored_value.data {
             StoredData::Stream(list) => {
-                let input_entry_id = if id == "*" {
-                    let mut new_id = EntryId::new();
+                let mut entry_id = EntryId::default();
+                if id == "*" {
                     if let Some(last_entry) = list.last() {
-                        match new_id.cmp(&last_entry.id) {
+                        entry_id = EntryId::new();
+                        match entry_id.cmp(&last_entry.id) {
                             std::cmp::Ordering::Less => {
-                                new_id.ms = last_entry.id.ms;
-                                new_id.seq = last_entry.id.seq + 1;
+                                entry_id.ms = last_entry.id.ms;
+                                entry_id.seq = last_entry.id.seq + 1;
                             }
                             std::cmp::Ordering::Greater => {
-                                new_id.seq = 0;
+                                entry_id.seq = 0;
                             }
                             std::cmp::Ordering::Equal => {
-                                new_id.seq = last_entry.id.seq + 1;
+                                entry_id.seq = last_entry.id.seq + 1;
                             }
                         }
                     } else {
-                        if new_id.ms == 0 {
-                            new_id.seq = 1;
+                        entry_id = EntryId::new();
+                        if entry_id.ms == 0 {
+                            entry_id.seq = 1;
+                        } else {
+                            entry_id.seq = 0;
                         }
                     }
-                    new_id
                 } else {
-                    match EntryId::from_str(id) {
-                        Ok(id) => {
-                            if id.ms == 0 && id.seq == 0 {
-                                return Err(
-                                    "ERR The ID specified in XADD must be greater than 0-0"
+                    let id_parts: Vec<&str> = id.split("-").collect();
+
+                    if id_parts.len() == 2 {
+                        if id_parts[1] == "*" {
+                            let ms = match id_parts[0].parse::<u128>() {
+                                Ok(ms) => ms,
+                                Err(_) => return Err(
+                                    "ERR Invalid stream ID specified as stream command argument"
                                         .to_string(),
-                                );
+                                ),
+                            };
+                            match list.last() {
+                                Some(last) => {
+                                    if last.id.ms < ms {
+                                        entry_id.ms = ms;
+                                        entry_id.seq = 0;
+                                    } else if last.id.ms == ms {
+                                        entry_id.ms = last.id.ms;
+                                        entry_id.seq = last.id.seq + 1;
+                                    } else {
+                                        return Err("ERR The ID specified in XADD is equal or smaller than the target stream top item".to_string());
+                                    }
+                                }
+                                None => {
+                                    entry_id.ms = ms;
+                                    if ms == 0 {
+                                        entry_id.seq = 1;
+                                    } else {
+                                        entry_id.seq = 0;
+                                    }
+                                }
                             }
-                            id
+                        } else {
+                            match EntryId::from_str(id) {
+                                Ok(id) => {
+                                    if id.ms == 0 && id.seq == 0 {
+                                        return Err(
+                                            "ERR The ID specified in XADD must be greater than 0-0"
+                                                .to_string(),
+                                        );
+                                    }
+                                    entry_id = id;
+                                }
+                                Err(_) => return Err(
+                                    "ERR Invalid stream ID specified as stream command argument"
+                                        .to_string(),
+                                ),
+                            }
                         }
-                        Err(_) => {
-                            return Err(
-                                "ERR Invalid stream ID specified as stream command argument"
-                                    .to_string(),
-                            )
-                        }
+                    } else {
+                        return Err("ERR Invalid stream ID specified as stream command argument"
+                            .to_string());
                     }
-                };
+                }
 
                 if let Some(last_entry) = list.last() {
-                    if input_entry_id <= last_entry.id {
+                    if entry_id <= last_entry.id {
                         return Err("ERR The ID specified in XADD is equal or smaller than the target stream top item".to_string());
                     }
                 }
 
                 let entry = Entry {
-                    id: input_entry_id.clone(),
+                    id: entry_id.clone(),
                     values,
                 };
                 list.push(entry);
-                Ok(format!("{}-{}", input_entry_id.ms, input_entry_id.seq))
+                Ok(format!("{}-{}", entry_id.ms, entry_id.seq))
+                // let input_entry_id = if id == "*" {
+                //     let mut new_id = EntryId::new();
+                //     if let Some(last_entry) = list.last() {
+                //         match new_id.cmp(&last_entry.id) {
+                //             std::cmp::Ordering::Less => {
+                //                 new_id.ms = last_entry.id.ms;
+                //                 new_id.seq = last_entry.id.seq + 1;
+                //             }
+                //             std::cmp::Ordering::Greater => {
+                //                 new_id.seq = 0;
+                //             }
+                //             std::cmp::Ordering::Equal => {
+                //                 new_id.seq = last_entry.id.seq + 1;
+                //             }
+                //         }
+                //     } else {
+                //         if new_id.ms == 0 {
+                //             new_id.seq = 1;
+                //         }
+                //     }
+                //     new_id
+                // } else {
+                //     match EntryId::from_str(id) {
+                //         Ok(id) => {
+                //             if id.ms == 0 && id.seq == 0 {
+                //                 return Err(
+                //                     "ERR The ID specified in XADD must be greater than 0-0"
+                //                         .to_string(),
+                //                 );
+                //             }
+                //             id
+                //         }
+                //         Err(_) => {
+                //             return Err(
+                //                 "ERR Invalid stream ID specified as stream command argument"
+                //                     .to_string(),
+                //             )
+                //         }
+                //     }
+                // };
+
+                // if let Some(last_entry) = list.last() {
+                //     if input_entry_id <= last_entry.id {
+                //         return Err("ERR The ID specified in XADD is equal or smaller than the target stream top item".to_string());
+                //     }
+                // }
+
+                // let entry = Entry {
+                //     id: input_entry_id.clone(),
+                //     values,
+                // };
+                // list.push(entry);
+                // Ok(format!("{}-{}", input_entry_id.ms, input_entry_id.seq))
             }
             _ => {
                 Err("WRONGTYPE Operation against a key holding the wrong kind of value".to_string())
