@@ -78,6 +78,12 @@ impl PartialOrd for EntryId {
     }
 }
 
+enum IdSpec {
+    FullWildcard,
+    PartialWildcardMs(u128),
+    Explicit(EntryId),
+}
+
 #[derive(Clone, Debug)]
 struct StoredValue {
     data: StoredData,
@@ -582,65 +588,70 @@ impl Storage {
                 };
                 list.push(entry);
                 Ok(format!("{}-{}", entry_id.ms, entry_id.seq))
-                // let input_entry_id = if id == "*" {
-                //     let mut new_id = EntryId::new();
-                //     if let Some(last_entry) = list.last() {
-                //         match new_id.cmp(&last_entry.id) {
-                //             std::cmp::Ordering::Less => {
-                //                 new_id.ms = last_entry.id.ms;
-                //                 new_id.seq = last_entry.id.seq + 1;
-                //             }
-                //             std::cmp::Ordering::Greater => {
-                //                 new_id.seq = 0;
-                //             }
-                //             std::cmp::Ordering::Equal => {
-                //                 new_id.seq = last_entry.id.seq + 1;
-                //             }
-                //         }
-                //     } else {
-                //         if new_id.ms == 0 {
-                //             new_id.seq = 1;
-                //         }
-                //     }
-                //     new_id
-                // } else {
-                //     match EntryId::from_str(id) {
-                //         Ok(id) => {
-                //             if id.ms == 0 && id.seq == 0 {
-                //                 return Err(
-                //                     "ERR The ID specified in XADD must be greater than 0-0"
-                //                         .to_string(),
-                //                 );
-                //             }
-                //             id
-                //         }
-                //         Err(_) => {
-                //             return Err(
-                //                 "ERR Invalid stream ID specified as stream command argument"
-                //                     .to_string(),
-                //             )
-                //         }
-                //     }
-                // };
-
-                // if let Some(last_entry) = list.last() {
-                //     if input_entry_id <= last_entry.id {
-                //         return Err("ERR The ID specified in XADD is equal or smaller than the target stream top item".to_string());
-                //     }
-                // }
-
-                // let entry = Entry {
-                //     id: input_entry_id.clone(),
-                //     values,
-                // };
-                // list.push(entry);
-                // Ok(format!("{}-{}", input_entry_id.ms, input_entry_id.seq))
             }
             _ => {
                 Err("WRONGTYPE Operation against a key holding the wrong kind of value".to_string())
             }
         }
     }
+}
+
+fn parse_id_spec(id: &str) -> Result<IdSpec, String> {
+    if id == "*" {
+        return Ok(IdSpec::FullWildcard);
+    } else {
+        match id.split_once("-") {
+            Some((first, second)) => {
+                if second == "*" {
+                    match first.parse::<u128>() {
+                        Ok(ms) => return Ok(IdSpec::PartialWildcardMs(ms)),
+                        Err(_) => {
+                            return Err(
+                                "ERR Invalid stream ID specified as stream command argument"
+                                    .to_string(),
+                            )
+                        }
+                    };
+                } else {
+                    match EntryId::from_str(id) {
+                        Ok(id) => {
+                            if id.ms == 0 && id.seq == 0 {
+                                return Err(
+                                    "ERR The ID specified in XADD must be greater than 0-0"
+                                        .to_string(),
+                                );
+                            }
+                            Ok(IdSpec::Explicit(id))
+                        }
+                        Err(_) => {
+                            return Err(
+                                "ERR Invalid stream ID specified as stream command argument"
+                                    .to_string(),
+                            )
+                        }
+                    }
+                }
+            }
+
+            None => {
+                return Err(
+                    "ERR Invalid stream ID specified as stream command argument".to_string()
+                );
+            }
+        }
+    }
+}
+
+fn resolve_id(id_spec: IdSpec, last: Option<&EntryId>) -> Result<EntryId, String> {
+    todo!()
+}
+
+fn validate_monotonic(new_id: &EntryId, last: Option<&EntryId>) -> Result<(), String> {
+    todo!()
+}
+
+fn push_entry(list: &mut Vec<Entry>, id: EntryId, values: HashMap<String, Vec<u8>>) -> String {
+    todo!()
 }
 
 #[cfg(test)]
