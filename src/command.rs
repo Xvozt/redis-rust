@@ -21,11 +21,16 @@ pub fn handle_command(value: &RespValue, storage: &Storage) -> String {
                 "BLPOP" => handle_blpop(elements, storage),
                 "TYPE" => handle_type(elements, storage),
                 "XADD" => handle_xadd(elements, storage),
+                "XRANGE" => handle_xrange(elements, storage),
                 _ => format!("-ERR unknown command: '{}'\r\n", command),
             }
         }
         _ => "-ERR Invalid command format \r\n".to_string(),
     }
+}
+
+fn handle_xrange(elements: &[RespValue], storage: &Storage) -> String {
+    todo!()
 }
 
 fn handle_xadd(elements: &[RespValue], storage: &Storage) -> String {

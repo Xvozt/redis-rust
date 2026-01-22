@@ -506,6 +506,14 @@ impl Storage {
             }
         }
     }
+
+    fn xrange(&self, key: &str, start: &str, end: &str) -> Result<Vec<Vec<u8>>, String> {
+        todo!()
+    }
+}
+
+fn parse_range_id(id: &str, is_start: bool) -> Result<EntryId, String> {
+    todo!()
 }
 
 fn parse_id_spec(id: &str) -> Result<IdSpec, String> {
@@ -1252,5 +1260,87 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(result.unwrap().contains('-'));
+    }
+
+    #[test]
+    fn test_xrange_returns_array_for_valid_range() {
+        let storage = Storage::new();
+        let mut values = HashMap::new();
+        values.insert("key".to_string(), b"value".to_vec());
+
+        let result = storage.xadd("mystream".to_string(), "5-*", values);
+
+        assert_eq!(result, Ok("5-0".to_string()));
+        assert!(storage.exists("mystream"));
+        assert_eq!(storage.get_type("mystream"), "stream");
+
+        let mut values = HashMap::new();
+        values.insert("second_key".to_string(), b"second_value".to_vec());
+        let second_result = storage.xadd("mystream".to_string(), "5-*", values);
+
+        assert_eq!(second_result, Ok("5-1".to_string()));
+
+        let mut values = HashMap::new();
+        values.insert("third_key".to_string(), b"third_value".to_vec());
+        let second_result = storage.xadd("mystream".to_string(), "5-*", values);
+
+        assert_eq!(second_result, Ok("5-2".to_string()));
+
+        let range = storage.xrange("mystream", "5-0", "5-2");
+        assert_eq!(
+            range,
+            Ok(vec![
+                b"5-0".to_vec(),
+                b"key".to_vec(),
+                b"value".to_vec(),
+                b"5-1".to_vec(),
+                b"second_key".to_vec(),
+                b"second_value".to_vec(),
+                b"5-2".to_vec(),
+                b"third_key".to_vec(),
+                b"third_value".to_vec(),
+            ])
+        )
+    }
+
+    #[test]
+    fn test_xrange_returns_array_for_valid_range_with_ms_only_part() {
+        let storage = Storage::new();
+        let mut values = HashMap::new();
+        values.insert("key".to_string(), b"value".to_vec());
+
+        let result = storage.xadd("mystream".to_string(), "5-*", values);
+
+        assert_eq!(result, Ok("5-0".to_string()));
+        assert!(storage.exists("mystream"));
+        assert_eq!(storage.get_type("mystream"), "stream");
+
+        let mut values = HashMap::new();
+        values.insert("second_key".to_string(), b"second_value".to_vec());
+        let second_result = storage.xadd("mystream".to_string(), "5-*", values);
+
+        assert_eq!(second_result, Ok("5-1".to_string()));
+
+        let mut values = HashMap::new();
+        values.insert("third_key".to_string(), b"third_value".to_vec());
+        let second_result = storage.xadd("mystream".to_string(), "5-*", values);
+
+        assert_eq!(second_result, Ok("5-2".to_string()));
+
+        let range = storage.xrange("mystream", "5", "5");
+        assert_eq!(
+            range,
+            Ok(vec![
+                b"5-0".to_vec(),
+                b"key".to_vec(),
+                b"value".to_vec(),
+                b"5-1".to_vec(),
+                b"second_key".to_vec(),
+                b"second_value".to_vec(),
+                b"5-2".to_vec(),
+                b"third_key".to_vec(),
+                b"third_value".to_vec(),
+            ])
+        )
     }
 }
