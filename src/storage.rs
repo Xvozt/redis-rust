@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::u128;
 
 #[derive(Clone, Debug)]
 enum StoredData {
@@ -512,8 +513,36 @@ impl Storage {
     }
 }
 
+// The command can accept IDs in the format <millisecondsTime>-<sequenceNumber>,
+// but the sequence number is optional. If you don't provide a sequence number:
+// For the start ID, the sequence number defaults to 0.
+// For the end ID, the sequence number defaults to the maximum sequence number.
+
 fn parse_range_id(id: &str, is_start: bool) -> Result<EntryId, String> {
-    todo!()
+    let mut parts = id.split("-");
+
+    let ms = parts
+        .next()
+        .ok_or("Missing first part: {ms}-{sequence}")?
+        .parse::<u128>()
+        .map_err(|_| "Invalid id")?;
+
+    let seq = match parts.next() {
+        Some(seq) => seq.parse::<u64>().map_err(|_| "Invalid id")?,
+        None => {
+            if is_start {
+                0
+            } else {
+                u64::MAX
+            }
+        }
+    };
+
+    if parts.next().is_some() {
+        return Err("Too many parts in ID".to_string());
+    }
+
+    Ok(EntryId { ms, seq })
 }
 
 fn parse_id_spec(id: &str) -> Result<IdSpec, String> {
@@ -624,7 +653,7 @@ fn push_entry(list: &mut Vec<Entry>, id: EntryId, values: HashMap<String, Vec<u8
 
 #[cfg(test)]
 mod tests {
-    use std::thread::sleep;
+    use std::{thread::sleep, u64};
 
     use super::*;
 
@@ -1260,6 +1289,42 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(result.unwrap().contains('-'));
+    }
+
+    #[test]
+    fn test_parse_id_works() {
+        let cases = [
+            ("12345-5", true, Ok(EntryId { ms: 12345, seq: 5 })),
+            (
+                "123",
+                false,
+                Ok(EntryId {
+                    ms: 123,
+                    seq: u64::MAX,
+                }),
+            ),
+            ("123", true, Ok(EntryId { ms: 123, seq: 0 })),
+        ];
+
+        for (id, is_start, expected) in cases {
+            let got = parse_range_id(id, is_start);
+            assert_eq!(got, expected, "case: {id} is_start={is_start}");
+        }
+    }
+
+    #[test]
+    fn test_parse_id_returns_error_for_involid_id() {
+        let cases = [
+            ("12345-0-0", true, Err("Too many parts in ID".to_string())),
+            ("-5", true, Err("Invalid id".to_string())),
+            ("abc-5", true, Err("Invalid id".to_string())),
+            ("123-a", true, Err("Invalid id".to_string())),
+        ];
+
+        for (id, is_start, expected) in cases {
+            let got = parse_range_id(id, is_start);
+            assert_eq!(got, expected, "cases: {id}")
+        }
     }
 
     #[test]
