@@ -509,14 +509,43 @@ impl Storage {
     }
 
     fn xrange(&self, key: &str, start: &str, end: &str) -> Result<Vec<Vec<u8>>, String> {
+        // direct approach to understand first
+
+        let mut store = self.inner.lock().unwrap();
+
+        let start = parse_range_id(start, true)?;
+
+        let end = parse_range_id(end, false)?;
+
+        let stored = store.get(key);
+
+        let data = match stored {
+            Some(data) => data,
+            None => return Err("no data".to_string()),
+        };
+
+        if data.is_expired() {
+            todo!()
+        }
+
+        let stream = match &data.data {
+            StoredData::Stream(s) => {
+                let (lower, upper) = range_indices(&s, &start, &end);
+            }
+            _ => {
+                return Err(
+                    "WRONGTYPE Operation against a key holding the wrong kind of value".to_string(),
+                )
+            }
+        };
+
         todo!()
     }
 }
 
-// The command can accept IDs in the format <millisecondsTime>-<sequenceNumber>,
-// but the sequence number is optional. If you don't provide a sequence number:
-// For the start ID, the sequence number defaults to 0.
-// For the end ID, the sequence number defaults to the maximum sequence number.
+fn range_indices(entries: &[Entry], start: &EntryId, end: &EntryId) -> (usize, usize) {
+    todo!()
+}
 
 fn parse_range_id(id: &str, is_start: bool) -> Result<EntryId, String> {
     let mut parts = id.split("-");
