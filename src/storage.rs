@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::num::{NonZeroI16, NonZeroI32};
 use std::str::FromStr;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
@@ -514,7 +515,6 @@ impl Storage {
         let mut store = self.inner.lock().unwrap();
 
         let start = parse_range_id(start, true)?;
-
         let end = parse_range_id(end, false)?;
 
         let stored = store.get(key);
@@ -530,7 +530,9 @@ impl Storage {
 
         let stream = match &data.data {
             StoredData::Stream(s) => {
-                let (lower, upper) = range_indices(&s, &start, &end);
+                if let Some((lower, upper)) = range_indices(&s, &start, &end) {
+                    todo!()
+                }
             }
             _ => {
                 return Err(
@@ -543,8 +545,21 @@ impl Storage {
     }
 }
 
-fn range_indices(entries: &[Entry], start: &EntryId, end: &EntryId) -> (usize, usize) {
-    todo!()
+fn range_indices(entries: &[Entry], start: &EntryId, end: &EntryId) -> Option<(usize, usize)> {
+    let lower = match entries.iter().position(|first| first.id >= *start) {
+        Some(lower) => lower,
+        None => return None,
+    };
+    let upper = match entries.iter().rposition(|last| last.id <= *end) {
+        Some(upper) => upper,
+        None => return None,
+    };
+
+    if lower > upper {
+        return None;
+    }
+
+    Some((lower, upper))
 }
 
 fn parse_range_id(id: &str, is_start: bool) -> Result<EntryId, String> {
