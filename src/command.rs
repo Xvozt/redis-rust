@@ -30,6 +30,10 @@ pub fn handle_command(value: &RespValue, storage: &Storage) -> String {
 }
 
 fn handle_xrange(elements: &[RespValue], storage: &Storage) -> String {
+    if elements.len() != 4 {
+        return "-ERR wrong number of arguments for command\r\n".to_string();
+    }
+
     todo!()
 }
 
