@@ -34,7 +34,25 @@ fn handle_xrange(elements: &[RespValue], storage: &Storage) -> String {
         return "-ERR wrong number of arguments for command\r\n".to_string();
     }
 
-    todo!()
+    let stream_name = extract_key(&elements[1]);
+    let start = match &elements[2] {
+        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
+        RespValue::SimpleString(s) => s.clone(),
+        _ => return "-ERR Invalid stream ID specified as stream command argument\r\n".to_string(),
+    };
+
+    let end = match &elements[3] {
+        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
+        RespValue::SimpleString(s) => s.clone(),
+        _ => return "-ERR Invalid stream ID specified as stream command argument\r\n".to_string(),
+    };
+
+    match storage.xrange(&stream_name, &start, &end) {
+        Ok(v) => format_nested_array(v),
+        Err(e) => {
+            format!("-{}\r\n", e)
+        }
+    }
 }
 
 fn handle_xadd(elements: &[RespValue], storage: &Storage) -> String {
@@ -352,6 +370,42 @@ fn format_array(items: Vec<Vec<u8>>) -> String {
         .collect();
 
     format!("*{}\r\n{}", items.len(), elements.join(""))
+}
+
+fn format_nested_array(items: Vec<Vec<Vec<u8>>>) -> String {
+    if items.is_empty() {
+        return "*0\r\n".to_string();
+    }
+
+    let mut out = String::new();
+    out.push_str(&format!("*{}\r\n", items.len()));
+    for item in items {
+        if item.is_empty() {
+            out.push_str("*0\r\n");
+            continue;
+        }
+        let id = &item[0];
+        let fields = &item[1..];
+
+        out.push_str("*2\r\n");
+
+        out.push_str(&format!(
+            "${}\r\n{}\r\n",
+            id.len(),
+            String::from_utf8_lossy(id)
+        ));
+
+        out.push_str(&format!("*{}\r\n", fields.len()));
+
+        for f in fields {
+            out.push_str(&format!(
+                "${}\r\n{}\r\n",
+                f.len(),
+                String::from_utf8_lossy(f)
+            ));
+        }
+    }
+    out
 }
 
 #[cfg(test)]

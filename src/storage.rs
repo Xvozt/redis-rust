@@ -508,12 +508,7 @@ impl Storage {
         }
     }
 
-    pub fn xrange(
-        &self,
-        key: &str,
-        start: &str,
-        end: &str,
-    ) -> Result<Option<Vec<Vec<u8>>>, String> {
+    pub fn xrange(&self, key: &str, start: &str, end: &str) -> Result<Vec<Vec<Vec<u8>>>, String> {
         // direct approach to understand first
 
         let mut store = self.inner.lock().unwrap();
@@ -525,29 +520,31 @@ impl Storage {
 
         let data = match stored {
             Some(data) => data,
-            None => return Ok(None),
+            None => return Ok(vec![]),
         };
 
         if data.is_expired() {
             store.remove(key);
-            return Ok(None);
+            return Ok(vec![]);
         }
 
         let out = match &data.data {
             StoredData::Stream(s) => {
                 if let Some((lower, upper)) = range_indices(&s, &start, &end) {
-                    let mut out: Vec<Vec<u8>> = Vec::new();
+                    let mut out: Vec<Vec<Vec<u8>>> = Vec::new();
                     for entry in s[lower..=upper].iter() {
+                        let mut item = Vec::new();
                         let element = format!("{}-{}", entry.id.ms, entry.id.seq);
-                        out.push(element.into_bytes());
+                        item.push(element.into_bytes());
                         for (k, v) in entry.values.iter() {
-                            out.push(k.as_bytes().to_vec());
-                            out.push(v.clone());
+                            item.push(k.as_bytes().to_vec());
+                            item.push(v.clone());
                         }
+                        out.push(item);
                     }
                     out
                 } else {
-                    return Ok(Some(vec![]));
+                    return Ok(vec![]);
                 }
             }
             _ => {
@@ -557,7 +554,7 @@ impl Storage {
             }
         };
 
-        Ok(Some(out))
+        Ok(out)
     }
 }
 
@@ -1414,17 +1411,19 @@ mod tests {
         let range = storage.xrange("mystream", "5-0", "5-2");
         assert_eq!(
             range,
-            Ok(Some(vec![
-                b"5-0".to_vec(),
-                b"key".to_vec(),
-                b"value".to_vec(),
-                b"5-1".to_vec(),
-                b"second_key".to_vec(),
-                b"second_value".to_vec(),
-                b"5-2".to_vec(),
-                b"third_key".to_vec(),
-                b"third_value".to_vec(),
-            ]))
+            Ok(vec![
+                vec![b"5-0".to_vec(), b"key".to_vec(), b"value".to_vec()],
+                vec![
+                    b"5-1".to_vec(),
+                    b"second_key".to_vec(),
+                    b"second_value".to_vec(),
+                ],
+                vec![
+                    b"5-2".to_vec(),
+                    b"third_key".to_vec(),
+                    b"third_value".to_vec(),
+                ]
+            ])
         )
     }
 
@@ -1455,17 +1454,19 @@ mod tests {
         let range = storage.xrange("mystream", "5", "5");
         assert_eq!(
             range,
-            Ok(Some(vec![
-                b"5-0".to_vec(),
-                b"key".to_vec(),
-                b"value".to_vec(),
-                b"5-1".to_vec(),
-                b"second_key".to_vec(),
-                b"second_value".to_vec(),
-                b"5-2".to_vec(),
-                b"third_key".to_vec(),
-                b"third_value".to_vec(),
-            ]))
+            Ok(vec![
+                vec![b"5-0".to_vec(), b"key".to_vec(), b"value".to_vec()],
+                vec![
+                    b"5-1".to_vec(),
+                    b"second_key".to_vec(),
+                    b"second_value".to_vec(),
+                ],
+                vec![
+                    b"5-2".to_vec(),
+                    b"third_key".to_vec(),
+                    b"third_value".to_vec(),
+                ]
+            ])
         )
     }
 }
