@@ -1469,4 +1469,84 @@ mod tests {
             ])
         )
     }
+
+    #[test]
+    fn test_xrange_returns_empty_for_non_existing_key() {
+        let storage = Storage::new();
+        let range = storage.xrange("missing", "0-0", "1-0");
+        assert_eq!(range, Ok(vec![]));
+    }
+
+    #[test]
+    fn test_xrange_returns_error_for_wrong_type() {
+        let storage = Storage::new();
+        storage.set("key".to_string(), b"value".to_vec());
+        let range = storage.xrange("key", "0-0", "1-0");
+        assert_eq!(
+            range,
+            Err("WRONGTYPE Operation against a key holding the wrong kind of value".to_string())
+        );
+    }
+
+    #[test]
+    fn test_xrange_returns_empty_when_start_is_after_end() {
+        let storage = Storage::new();
+        let mut values = HashMap::new();
+        values.insert("key".to_string(), b"value".to_vec());
+        assert_eq!(
+            storage.xadd("mystream".to_string(), "5-*", values),
+            Ok("5-0".to_string())
+        );
+
+        let mut values = HashMap::new();
+        values.insert("second_key".to_string(), b"second_value".to_vec());
+        assert_eq!(
+            storage.xadd("mystream".to_string(), "5-*", values),
+            Ok("5-1".to_string())
+        );
+
+        let range = storage.xrange("mystream", "5-1", "5-0");
+        assert_eq!(range, Ok(vec![]));
+    }
+
+    #[test]
+    fn test_xrange_respects_bounds_across_ms() {
+        let storage = Storage::new();
+        let mut values = HashMap::new();
+        values.insert("first".to_string(), b"v1".to_vec());
+        assert_eq!(
+            storage.xadd("mystream".to_string(), "5-*", values),
+            Ok("5-0".to_string())
+        );
+
+        let mut values = HashMap::new();
+        values.insert("second".to_string(), b"v2".to_vec());
+        assert_eq!(
+            storage.xadd("mystream".to_string(), "5-*", values),
+            Ok("5-1".to_string())
+        );
+
+        let mut values = HashMap::new();
+        values.insert("third".to_string(), b"v3".to_vec());
+        assert_eq!(
+            storage.xadd("mystream".to_string(), "6-*", values),
+            Ok("6-0".to_string())
+        );
+
+        let range = storage.xrange("mystream", "5-1", "6");
+        assert_eq!(
+            range,
+            Ok(vec![
+                vec![b"5-1".to_vec(), b"second".to_vec(), b"v2".to_vec()],
+                vec![b"6-0".to_vec(), b"third".to_vec(), b"v3".to_vec()],
+            ])
+        );
+    }
+
+    #[test]
+    fn test_xrange_returns_error_for_invalid_id() {
+        let storage = Storage::new();
+        let range = storage.xrange("mystream", "abc", "1-0");
+        assert_eq!(range, Err("Invalid id".to_string()));
+    }
 }
