@@ -1549,4 +1549,66 @@ mod tests {
         let range = storage.xrange("mystream", "abc", "1-0");
         assert_eq!(range, Err("Invalid id".to_string()));
     }
+
+    #[test]
+    fn test_xrange_supports_dash_as_min_start_id() {
+        let storage = Storage::new();
+        let mut values = HashMap::new();
+        values.insert("first".to_string(), b"v1".to_vec());
+        assert_eq!(
+            storage.xadd("mystream".to_string(), "5-*", values),
+            Ok("5-0".to_string())
+        );
+
+        let mut values = HashMap::new();
+        values.insert("second".to_string(), b"v2".to_vec());
+        assert_eq!(
+            storage.xadd("mystream".to_string(), "5-*", values),
+            Ok("5-1".to_string())
+        );
+
+        let mut values = HashMap::new();
+        values.insert("third".to_string(), b"v3".to_vec());
+        assert_eq!(
+            storage.xadd("mystream".to_string(), "6-*", values),
+            Ok("6-0".to_string())
+        );
+
+        let range = storage.xrange("mystream", "-", "5-1");
+        assert_eq!(
+            range,
+            Ok(vec![
+                vec![b"5-0".to_vec(), b"first".to_vec(), b"v1".to_vec()],
+                vec![b"5-1".to_vec(), b"second".to_vec(), b"v2".to_vec()],
+            ])
+        );
+    }
+
+    #[test]
+    fn test_xrange_dash_start_with_ms_only_end() {
+        let storage = Storage::new();
+        let mut values = HashMap::new();
+        values.insert("first".to_string(), b"v1".to_vec());
+        assert_eq!(
+            storage.xadd("mystream".to_string(), "5-*", values),
+            Ok("5-0".to_string())
+        );
+
+        let mut values = HashMap::new();
+        values.insert("second".to_string(), b"v2".to_vec());
+        assert_eq!(
+            storage.xadd("mystream".to_string(), "6-*", values),
+            Ok("6-0".to_string())
+        );
+
+        let range = storage.xrange("mystream", "-", "5");
+        assert_eq!(
+            range,
+            Ok(vec![vec![
+                b"5-0".to_vec(),
+                b"first".to_vec(),
+                b"v1".to_vec()
+            ]])
+        );
+    }
 }
