@@ -554,6 +554,10 @@ impl Storage {
 
         Ok(out)
     }
+
+    pub fn xread(&self, key: &str, start: &str) -> Result<Vec<Vec<Vec<u8>>>, String> {
+        todo!()
+    }
 }
 
 fn range_indices(entries: &[Entry], start: &EntryId, end: &EntryId) -> Option<(usize, usize)> {
@@ -1680,5 +1684,78 @@ mod tests {
                 b"v2".to_vec()
             ]])
         );
+    }
+
+    #[test]
+    fn test_xread_returns_entries_after_id() {
+        let storage = Storage::new();
+        let mut values = HashMap::new();
+        values.insert("first".to_string(), b"v1".to_vec());
+        assert_eq!(
+            storage.xadd("mystream".to_string(), "0-1", values),
+            Ok("0-1".to_string())
+        );
+
+        let mut values = HashMap::new();
+        values.insert("second".to_string(), b"v2".to_vec());
+        assert_eq!(
+            storage.xadd("mystream".to_string(), "0-2", values),
+            Ok("0-2".to_string())
+        );
+
+        let mut values = HashMap::new();
+        values.insert("third".to_string(), b"v3".to_vec());
+        assert_eq!(
+            storage.xadd("mystream".to_string(), "1-0", values),
+            Ok("1-0".to_string())
+        );
+
+        let range = storage.xread("mystream", "0-1");
+        assert_eq!(
+            range,
+            Ok(vec![
+                vec![b"0-2".to_vec(), b"second".to_vec(), b"v2".to_vec()],
+                vec![b"1-0".to_vec(), b"third".to_vec(), b"v3".to_vec()],
+            ])
+        );
+    }
+
+    #[test]
+    fn test_xread_returns_empty_when_no_new_entries() {
+        let storage = Storage::new();
+        let mut values = HashMap::new();
+        values.insert("first".to_string(), b"v1".to_vec());
+        assert_eq!(
+            storage.xadd("mystream".to_string(), "0-1", values),
+            Ok("0-1".to_string())
+        );
+
+        let range = storage.xread("mystream", "0-1");
+        assert_eq!(range, Ok(vec![]));
+    }
+
+    #[test]
+    fn test_xread_returns_empty_for_non_existing_key() {
+        let storage = Storage::new();
+        let range = storage.xread("missing", "0-0");
+        assert_eq!(range, Ok(vec![]));
+    }
+
+    #[test]
+    fn test_xread_returns_error_for_wrong_type() {
+        let storage = Storage::new();
+        storage.set("key".to_string(), b"value".to_vec());
+        let range = storage.xread("key", "0-0");
+        assert_eq!(
+            range,
+            Err("WRONGTYPE Operation against a key holding the wrong kind of value".to_string())
+        );
+    }
+
+    #[test]
+    fn test_xread_returns_error_for_invalid_id() {
+        let storage = Storage::new();
+        let range = storage.xread("mystream", "abc");
+        assert_eq!(range, Err("Invalid id".to_string()));
     }
 }
