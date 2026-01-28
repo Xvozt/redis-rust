@@ -509,8 +509,6 @@ impl Storage {
     }
 
     pub fn xrange(&self, key: &str, start: &str, end: &str) -> Result<Vec<Vec<Vec<u8>>>, String> {
-        // direct approach to understand first
-
         let mut store = self.inner.lock().unwrap();
 
         let start = parse_range_id(start, true)?;
@@ -576,6 +574,9 @@ fn range_indices(entries: &[Entry], start: &EntryId, end: &EntryId) -> Option<(u
 }
 
 fn parse_range_id(id: &str, is_start: bool) -> Result<EntryId, String> {
+    if id == "-" && is_start {
+        return Ok(EntryId { ms: 0, seq: 0 });
+    }
     let mut parts = id.split("-");
 
     let ms = parts
