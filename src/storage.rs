@@ -3,7 +3,7 @@ use std::str::FromStr;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use std::u128;
+use std::{u128, u64};
 
 #[derive(Clone, Debug)]
 enum StoredData {
@@ -576,6 +576,12 @@ fn range_indices(entries: &[Entry], start: &EntryId, end: &EntryId) -> Option<(u
 fn parse_range_id(id: &str, is_start: bool) -> Result<EntryId, String> {
     if id == "-" && is_start {
         return Ok(EntryId { ms: 0, seq: 0 });
+    }
+    if id == "+" && !is_start {
+        return Ok(EntryId {
+            ms: u128::MAX,
+            seq: u64::MAX,
+        });
     }
 
     let mut parts = id.split("-");
