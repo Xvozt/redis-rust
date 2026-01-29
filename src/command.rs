@@ -31,7 +31,28 @@ pub fn handle_command(value: &RespValue, storage: &Storage) -> String {
 }
 
 fn handle_xread(elements: &[RespValue], storage: &Storage) -> String {
-    todo!()
+    if elements.len() != 4 {
+        return "-ERR wrong number of arguments for command\r\n".to_string();
+    }
+
+    if extract_command_name(&elements[1]) != "STREAMS" {
+        return "-ERR syntax error\r\n".to_string();
+    }
+
+    let stream_name = extract_key(&elements[2]);
+
+    let id = match &elements[3] {
+        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
+        RespValue::SimpleString(s) => s.clone(),
+        _ => return "-ERR Invalid stream ID specified as stream command argument\r\n".to_string(),
+    };
+
+    match storage.xread(&stream_name, &id) {
+        Ok(v) => format_xread(&stream_name, v),
+        Err(e) => {
+            format!("-{}\r\n", e)
+        }
+    }
 }
 
 fn handle_xrange(elements: &[RespValue], storage: &Storage) -> String {
@@ -53,7 +74,7 @@ fn handle_xrange(elements: &[RespValue], storage: &Storage) -> String {
     };
 
     match storage.xrange(&stream_name, &start, &end) {
-        Ok(v) => format_nested_array(v),
+        Ok(v) => format_xrange(v),
         Err(e) => {
             format!("-{}\r\n", e)
         }
@@ -377,7 +398,20 @@ fn format_array(items: Vec<Vec<u8>>) -> String {
     format!("*{}\r\n{}", items.len(), elements.join(""))
 }
 
-fn format_nested_array(items: Vec<Vec<Vec<u8>>>) -> String {
+fn format_xread(stream_name: &str, items: Vec<Vec<Vec<u8>>>) -> String {
+    if items.is_empty() {
+        return "*0\r\n".to_string();
+    }
+
+    let mut out = String::new();
+    out.push_str(&format!("*1\r\n",)); // only works for 1 stream xread
+    out.push_str(&format!("*2\r\n",));
+    out.push_str(&format!("${}\r\n{}\r\n", stream_name.len(), &stream_name));
+    out.push_str(&format_xrange(items));
+    out
+}
+
+fn format_xrange(items: Vec<Vec<Vec<u8>>>) -> String {
     if items.is_empty() {
         return "*0\r\n".to_string();
     }

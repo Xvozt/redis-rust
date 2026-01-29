@@ -528,7 +528,7 @@ impl Storage {
 
         let out = match &data.data {
             StoredData::Stream(s) => {
-                if let Some((lower, upper)) = range_indices(&s, &start, &end) {
+                if let Some((lower, upper)) = xrange_range_indices(&s, &start, &end) {
                     let mut out: Vec<Vec<Vec<u8>>> = Vec::new();
                     for entry in s[lower..=upper].iter() {
                         let mut item = Vec::new();
@@ -555,12 +555,32 @@ impl Storage {
         Ok(out)
     }
 
-    pub fn xread(&self, key: &str, start: &str) -> Result<Vec<Vec<Vec<u8>>>, String> {
+    pub fn xread(&self, key: &str, id: &str) -> Result<Vec<Vec<Vec<u8>>>, String> {
+        let mut store = self.inner.lock().unwrap();
+
+        let id = parse_range_id(id, false)?;
+
+        let stored = store.get(key);
+
+        let data = match stored {
+            Some(data) => data,
+            None => return Ok(vec![]),
+        };
+
+        if data.is_expired() {
+            store.remove(key);
+            return Ok(vec![]);
+        }
+
         todo!()
     }
 }
 
-fn range_indices(entries: &[Entry], start: &EntryId, end: &EntryId) -> Option<(usize, usize)> {
+fn xrange_range_indices(
+    entries: &[Entry],
+    start: &EntryId,
+    end: &EntryId,
+) -> Option<(usize, usize)> {
     let lower = match entries.iter().position(|first| first.id >= *start) {
         Some(lower) => lower,
         None => return None,
@@ -573,6 +593,17 @@ fn range_indices(entries: &[Entry], start: &EntryId, end: &EntryId) -> Option<(u
     if lower > upper {
         return None;
     }
+
+    Some((lower, upper))
+}
+
+fn xread_range_indices(entries: &[Entry], start: &EntryId) -> Option<(usize, usize)> {
+    let lower = match entries.iter().position(|first| first.id > *start) {
+        Some(lower) => lower,
+        None => return None,
+    };
+
+    let upper = entries.len().saturating_sub(1);
 
     Some((lower, upper))
 }
