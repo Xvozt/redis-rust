@@ -529,17 +529,7 @@ impl Storage {
         let out = match &data.data {
             StoredData::Stream(s) => {
                 if let Some((lower, upper)) = xrange_range_indices(&s, &start, &end) {
-                    let mut out: Vec<Vec<Vec<u8>>> = Vec::new();
-                    for entry in s[lower..=upper].iter() {
-                        let mut item = Vec::new();
-                        let element = format!("{}-{}", entry.id.ms, entry.id.seq);
-                        item.push(element.into_bytes());
-                        for (k, v) in entry.values.iter() {
-                            item.push(k.as_bytes().to_vec());
-                            item.push(v.clone());
-                        }
-                        out.push(item);
-                    }
+                    let out = entries_to_vec(&s[lower..=upper]);
                     out
                 } else {
                     return Ok(vec![]);
@@ -558,7 +548,7 @@ impl Storage {
     pub fn xread(&self, key: &str, id: &str) -> Result<Vec<Vec<Vec<u8>>>, String> {
         let mut store = self.inner.lock().unwrap();
 
-        let id = parse_range_id(id, false)?;
+        let start = parse_range_id(id, true)?;
 
         let stored = store.get(key);
 
@@ -572,8 +562,42 @@ impl Storage {
             return Ok(vec![]);
         }
 
-        todo!()
+        let out = match &data.data {
+            StoredData::Stream(s) => {
+                if let Some((lower, upper)) = xread_range_indices(&s, &start) {
+                    let out = entries_to_vec(&s[lower..=upper]);
+                    out
+                } else {
+                    return Ok(vec![]);
+                }
+            }
+            _ => {
+                return {
+                    Err(
+                        "WRONGTYPE Operation against a key holding the wrong kind of value"
+                            .to_string(),
+                    )
+                }
+            }
+        };
+
+        Ok(out)
     }
+}
+
+fn entries_to_vec(entries: &[Entry]) -> Vec<Vec<Vec<u8>>> {
+    let mut out: Vec<Vec<Vec<u8>>> = Vec::new();
+    for entry in entries {
+        let mut item = Vec::new();
+        let element = format!("{}-{}", entry.id.ms, entry.id.seq);
+        item.push(element.into_bytes());
+        for (k, v) in entry.values.iter() {
+            item.push(k.as_bytes().to_vec());
+            item.push(v.clone());
+        }
+        out.push(item);
+    }
+    out
 }
 
 fn xrange_range_indices(
