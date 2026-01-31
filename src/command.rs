@@ -1610,4 +1610,104 @@ mod tests {
             "-ERR wrong number of arguments for command\r\n"
         );
     }
+
+    #[test]
+    fn test_xread_command_returns_entries_for_two_streams() {
+        let storage = Storage::new();
+
+        let cmd_xadd_stream1 = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XADD".to_vec())),
+            RespValue::BulkString(Some(b"stream1".to_vec())),
+            RespValue::BulkString(Some(b"0-1".to_vec())),
+            RespValue::BulkString(Some(b"field".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_xadd_stream1, &storage), "$3\r\n0-1\r\n");
+
+        let cmd_xadd_stream2 = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XADD".to_vec())),
+            RespValue::BulkString(Some(b"stream2".to_vec())),
+            RespValue::BulkString(Some(b"0-1".to_vec())),
+            RespValue::BulkString(Some(b"field".to_vec())),
+            RespValue::BulkString(Some(b"value2".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_xadd_stream2, &storage), "$3\r\n0-1\r\n");
+
+        let cmd_xread = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XREAD".to_vec())),
+            RespValue::BulkString(Some(b"STREAMS".to_vec())),
+            RespValue::BulkString(Some(b"stream1".to_vec())),
+            RespValue::BulkString(Some(b"stream2".to_vec())),
+            RespValue::BulkString(Some(b"0-0".to_vec())),
+            RespValue::BulkString(Some(b"0-0".to_vec())),
+        ]));
+
+        let expected = concat!(
+            "*2\r\n",
+            "*2\r\n",
+            "$7\r\nstream1\r\n",
+            "*1\r\n",
+            "*2\r\n",
+            "$3\r\n0-1\r\n",
+            "*2\r\n",
+            "$5\r\nfield\r\n",
+            "$5\r\nvalue\r\n",
+            "*2\r\n",
+            "$7\r\nstream2\r\n",
+            "*1\r\n",
+            "*2\r\n",
+            "$3\r\n0-1\r\n",
+            "*2\r\n",
+            "$5\r\nfield\r\n",
+            "$6\r\nvalue2\r\n"
+        );
+
+        assert_eq!(handle_command(&cmd_xread, &storage), expected);
+    }
+
+    #[test]
+    fn test_xread_command_omits_streams_with_no_new_entries() {
+        let storage = Storage::new();
+
+        let cmd_xadd_stream1 = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XADD".to_vec())),
+            RespValue::BulkString(Some(b"stream1".to_vec())),
+            RespValue::BulkString(Some(b"0-1".to_vec())),
+            RespValue::BulkString(Some(b"field".to_vec())),
+            RespValue::BulkString(Some(b"value".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_xadd_stream1, &storage), "$3\r\n0-1\r\n");
+
+        let cmd_xadd_stream2 = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XADD".to_vec())),
+            RespValue::BulkString(Some(b"stream2".to_vec())),
+            RespValue::BulkString(Some(b"0-1".to_vec())),
+            RespValue::BulkString(Some(b"field".to_vec())),
+            RespValue::BulkString(Some(b"value2".to_vec())),
+        ]));
+        assert_eq!(handle_command(&cmd_xadd_stream2, &storage), "$3\r\n0-1\r\n");
+
+        let cmd_xread = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"XREAD".to_vec())),
+            RespValue::BulkString(Some(b"STREAMS".to_vec())),
+            RespValue::BulkString(Some(b"stream1".to_vec())),
+            RespValue::BulkString(Some(b"stream2".to_vec())),
+            RespValue::BulkString(Some(b"0-0".to_vec())),
+            RespValue::BulkString(Some(b"0-1".to_vec())),
+        ]));
+
+        let expected = concat!(
+            "*1\r\n",
+            "*2\r\n",
+            "$7\r\nstream1\r\n",
+            "*1\r\n",
+            "*2\r\n",
+            "$3\r\n0-1\r\n",
+            "*2\r\n",
+            "$5\r\nfield\r\n",
+            "$5\r\nvalue\r\n"
+        );
+
+        assert_eq!(handle_command(&cmd_xread, &storage), expected);
+    }
 }
