@@ -31,28 +31,26 @@ pub fn handle_command(value: &RespValue, storage: &Storage) -> String {
 }
 
 fn handle_xread(elements: &[RespValue], storage: &Storage) -> String {
-    if elements.len() != 4 {
+    if elements.len() < 4 || (elements.len() - 2) % 2 != 0 {
         return "-ERR wrong number of arguments for command\r\n".to_string();
     }
 
     if extract_command_name(&elements[1]) != "STREAMS" {
         return "-ERR syntax error\r\n".to_string();
     }
-
-    let stream_name = extract_key(&elements[2]);
-
-    let id = match &elements[3] {
-        RespValue::BulkString(Some(s)) => String::from_utf8_lossy(s).to_string(),
-        RespValue::SimpleString(s) => s.clone(),
-        _ => return "-ERR Invalid stream ID specified as stream command argument\r\n".to_string(),
-    };
-
-    match storage.xread(&stream_name, &id) {
-        Ok(v) => format_xread(&stream_name, v),
-        Err(e) => {
-            format!("-{}\r\n", e)
-        }
+    let streams: Vec<(&str, &str)> = parse_streams(&elements[2..]);
+    match storage.xread_multi(streams) {
+        Ok(v) => format_xread_multi(v),
+        Err(e) => format!("-{}\r\n", e),
     }
+}
+
+fn format_xread_multi(streams: Vec<(String, Vec<Vec<Vec<u8>>>)>) -> String {
+    todo!()
+}
+
+fn parse_streams(streams_candidates: &[RespValue]) -> Vec<(&str, &str)> {
+    todo!()
 }
 
 fn handle_xrange(elements: &[RespValue], storage: &Storage) -> String {

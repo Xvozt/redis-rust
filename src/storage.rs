@@ -583,6 +583,13 @@ impl Storage {
 
         Ok(out)
     }
+
+    pub fn xread_multi(
+        &self,
+        streams: Vec<(&str, &str)>,
+    ) -> Result<Vec<(String, Vec<Vec<Vec<u8>>>)>, String> {
+        todo!()
+    }
 }
 
 fn entries_to_vec(entries: &[Entry]) -> Vec<Vec<Vec<u8>>> {
