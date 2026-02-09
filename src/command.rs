@@ -38,7 +38,11 @@ fn handle_xread(elements: &[RespValue], storage: &Storage) -> String {
     if extract_command_name(&elements[1]) != "STREAMS" {
         return "-ERR syntax error\r\n".to_string();
     }
-    let streams: Vec<(&str, &str)> = parse_streams(&elements[2..]);
+    let streams: Vec<(&str, &str)> = match parse_streams(&elements[2..]) {
+        Ok(pairs) => pairs,
+        Err(e) => return e,
+    };
+
     match storage.xread_multi(streams) {
         Ok(v) => format_xread_multi(v),
         Err(e) => format!("-{}\r\n", e),
@@ -49,8 +53,40 @@ fn format_xread_multi(streams: Vec<(String, Vec<Vec<Vec<u8>>>)>) -> String {
     todo!()
 }
 
-fn parse_streams(streams_candidates: &[RespValue]) -> Vec<(&str, &str)> {
-    todo!()
+fn parse_streams(streams_candidates: &[RespValue]) -> Result<Vec<(&str, &str)>, String> {
+    let half = streams_candidates.len() / 2;
+    let (names, ids) = streams_candidates.split_at(half);
+    let mut out: Vec<(&str, &str)> = Vec::with_capacity(half);
+
+    for i in 0..half {
+        let name = match &names[i] {
+            RespValue::BulkString(Some(s)) => match std::str::from_utf8(s) {
+                Ok(s) => s,
+                Err(_) => return Err("-ERR Invalid key type\r\n".to_string()),
+            },
+            RespValue::SimpleString(s) => s.as_str(),
+            _ => return Err("-ERR Invalid key type\r\n".to_string()),
+        };
+        let id = match &ids[i] {
+            RespValue::BulkString(Some(s)) => match std::str::from_utf8(s) {
+                Ok(s) => s,
+                Err(_) => {
+                    return Err(
+                        "-ERR Invalid stream ID specified as stream command argument\r\n"
+                            .to_string(),
+                    )
+                }
+            },
+            RespValue::SimpleString(s) => s.as_str(),
+            _ => {
+                return Err(
+                    "-ERR Invalid stream ID specified as stream command argument\r\n".to_string(),
+                )
+            }
+        };
+        out.push((name, id))
+    }
+    Ok(out)
 }
 
 fn handle_xrange(elements: &[RespValue], storage: &Storage) -> String {
