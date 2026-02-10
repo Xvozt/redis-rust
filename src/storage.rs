@@ -546,49 +546,57 @@ impl Storage {
     }
 
     pub fn xread(&self, key: &str, id: &str) -> Result<Vec<Vec<Vec<u8>>>, String> {
-        let mut store = self.inner.lock().unwrap();
-
-        let start = parse_range_id(id, true)?;
-
-        let stored = store.get(key);
-
-        let data = match stored {
-            Some(data) => data,
-            None => return Ok(vec![]),
-        };
-
-        if data.is_expired() {
-            store.remove(key);
+        let mut res = self.xread_multi(vec![(key, id)])?;
+        if res.is_empty() {
             return Ok(vec![]);
         }
-
-        let out = match &data.data {
-            StoredData::Stream(s) => {
-                if let Some((lower, upper)) = xread_range_indices(&s, &start) {
-                    let out = entries_to_vec(&s[lower..=upper]);
-                    out
-                } else {
-                    return Ok(vec![]);
-                }
-            }
-            _ => {
-                return {
-                    Err(
-                        "WRONGTYPE Operation against a key holding the wrong kind of value"
-                            .to_string(),
-                    )
-                }
-            }
-        };
-
-        Ok(out)
+        Ok(res.remove(0).1)
     }
 
     pub fn xread_multi(
         &self,
         streams: Vec<(&str, &str)>,
     ) -> Result<Vec<(String, Vec<Vec<Vec<u8>>>)>, String> {
-        todo!()
+        let mut store = self.inner.lock().unwrap();
+        let mut out: Vec<(String, Vec<Vec<Vec<u8>>>)> = Vec::new();
+
+        for (key, id) in streams {
+            let start = parse_range_id(id, true)?;
+            let stored = store.get(key);
+
+            let data = match stored {
+                Some(data) => data,
+                None => return Ok(vec![]),
+            };
+
+            if data.is_expired() {
+                store.remove(key);
+                return Ok(vec![]);
+            }
+
+            let entries = match &data.data {
+                StoredData::Stream(s) => {
+                    if let Some((lower, upper)) = xread_range_indices(&s, &start) {
+                        entries_to_vec(&s[lower..=upper])
+                    } else {
+                        continue;
+                    }
+                }
+                _ => {
+                    return {
+                        Err(
+                            "WRONGTYPE Operation against a key holding the wrong kind of value"
+                                .to_string(),
+                        )
+                    }
+                }
+            };
+
+            if !entries.is_empty() {
+                out.push((key.to_string(), entries));
+            }
+        }
+        Ok(out)
     }
 }
 

@@ -49,8 +49,32 @@ fn handle_xread(elements: &[RespValue], storage: &Storage) -> String {
     }
 }
 
+// if items.is_empty() {
+//     return "*0\r\n".to_string();
+// }
+
+// let mut out = String::new();
+// out.push_str(&format!("*1\r\n",)); // only works for 1 stream xread
+// out.push_str(&format!("*2\r\n",));
+// out.push_str(&format!("${}\r\n{}\r\n", stream_name.len(), &stream_name));
+// out.push_str(&format_xrange(items));
+// out
+
 fn format_xread_multi(streams: Vec<(String, Vec<Vec<Vec<u8>>>)>) -> String {
-    todo!()
+    if streams.is_empty() {
+        return "*0\r\n".to_string();
+    }
+
+    let mut out = String::new();
+    out.push_str(&format!("*{}\r\n", streams.len()));
+
+    for (stream_name, items) in streams {
+        out.push_str("*2\r\n");
+        out.push_str(&format!("${}\r\n{}\r\n", stream_name.len(), stream_name));
+        out.push_str(&format_xrange(items));
+    }
+
+    out
 }
 
 fn parse_streams(streams_candidates: &[RespValue]) -> Result<Vec<(&str, &str)>, String> {
@@ -430,19 +454,6 @@ fn format_array(items: Vec<Vec<u8>>) -> String {
         .collect();
 
     format!("*{}\r\n{}", items.len(), elements.join(""))
-}
-
-fn format_xread(stream_name: &str, items: Vec<Vec<Vec<u8>>>) -> String {
-    if items.is_empty() {
-        return "*0\r\n".to_string();
-    }
-
-    let mut out = String::new();
-    out.push_str(&format!("*1\r\n",)); // only works for 1 stream xread
-    out.push_str(&format!("*2\r\n",));
-    out.push_str(&format!("${}\r\n{}\r\n", stream_name.len(), &stream_name));
-    out.push_str(&format_xrange(items));
-    out
 }
 
 fn format_xrange(items: Vec<Vec<Vec<u8>>>) -> String {
